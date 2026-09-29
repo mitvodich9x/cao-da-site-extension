@@ -56,7 +56,8 @@ def build_page(src_html: str, hostname: str, url: str) -> str:
                 return tag
         # Script inline CHỈ gán dữ liệu (window.__INITIAL_STATE__={...} của Williams-Sonoma):
         # giữ lại vì adapter đọc từ đó, và nó không chạy gì ngoài phép gán.
-        if 'src=' not in head and re.match(r'<script[^>]*>\s*window\.__[A-Z_]+__\s*=\s*\{', tag):
+        # Academy: window.ASOData= window.ASOData || {}; window.ASOData['comp-…']={…}
+        if 'src=' not in head and re.match(r'<script[^>]*>\s*window\.(__[A-Z_]+__\s*=\s*\{|ASOData\s*=)', tag):
             return tag
         return ''
     s = re.sub(r'<script\b[^>]*>.*?</script>', keep, src_html, flags=re.S | re.I)

@@ -3345,7 +3345,8 @@ async (opts) => {
     //   productItem.selectedIdentifier  tổ hợp đang chọn (theo ?sku=, không có thì SKU mặc định)
     //   productItem.productSpecifications  featureBenefits[] / specifications{} / whatsInTheBox[]
     //   productItem.longDescription, sizeChartURL (PDF Scene7)
-    // 1 link chung mọi màu (?sku= chỉ chọn sẵn 1 tổ hợp) -> identity color+variant.
+    // 1 link chung mọi màu (?sku= chỉ chọn sẵn 1 tổ hợp) -> identity color+variant, nhưng
+    // extra chỉ trả MÀU CỦA LINK (không tách ra mọi màu — khách 2026-09-29).
     // BẪY: hàng MAP "priceInCart" — trang hiện listPrice ($74.99 "Our Price in Cart"), giá thật
     // salePrice chỉ thấy trong giỏ -> price = giá đang hiện, cảnh báo kèm giá trong giỏ.
     // Ảnh Scene7 gốc không tham số = 1500px ngang; ?wid=2000&hei=2000 ra 2000x2000.
@@ -3527,10 +3528,15 @@ async (opts) => {
                 if (pr) prices[c] = { price: pr.price, list_price: pr.list_price };
             }
         });
-        Object.keys(codes).forEach((k) => { if (k.indexOf('\u0000') >= 0) delete codes[k]; });
+        // CHỈ màu của link (?sku=): mỗi màu Academy có link riêng, khách không muốn 1 link
+        // sinh ra mọi màu (bảng tự tách mỗi màu 1 sản phẩm khi thấy >= 2 màu) — 2026-09-29.
+        // Trục giữa (Shoe Width...) của cùng màu vẫn giữ.
+        const onlyCur = (c) => !curColor || S(c) === curColor;
+        Object.keys(codes).forEach((k) => { if (k.indexOf('\u0000') >= 0 || !onlyCur(k)) delete codes[k]; });
+        Object.keys(prices).forEach((k) => { if (!onlyCur(k)) delete prices[k]; });
         const allSizes = sizes.length ? sizes : ['One Size'];
         const matrix = [];
-        const colorList = colors.length ? colors : [''];
+        const colorList = colors.length ? (curColor ? [curColor] : colors) : [''];
         colorList.forEach((c) => variantsSeen.forEach((v) => {
             const row = (tbl[c] || {})[v];
             if (!row) return;
@@ -3563,7 +3569,7 @@ async (opts) => {
         const guide = S(p.sizeChartURL || '').trim();
         return {
             color_label: ax.color || '',
-            colors: colors,
+            colors: curColor ? [curColor] : colors,
             current_color: curColor,
             variant_label: ax.other.join(' / '),
             current_variant: curVariant,
