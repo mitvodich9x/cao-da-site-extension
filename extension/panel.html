@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>Cào đa site</title>
+<link rel="stylesheet" href="panel.css">
+</head>
+<body>
+<header>
+  <h1>🌐 Cào sản phẩm đa site</h1>
+</header>
+
+<nav class="tabs">
+  <button id="tabSite" class="tab is-active" data-view="viewSite">🌐 Cào site</button>
+  <button id="tabLinks" class="tab" data-view="viewLinks">🔗 Cào link <span id="lblLpCount" class="tag"></span></button>
+</nav>
+
+<div id="viewSite" class="view">
+  <p class="hint">
+    Dán link sản phẩm (mỗi dòng 1 link) → cào <b>tiêu đề, giá gốc/hiện tại, mô tả, ảnh theo
+    variant</b> và <b>size · màu · còn/hết hàng</b>, xuất bảng theo <b>checklist eBay</b>
+    (tiêu đề đã sửa · màu hiện tại · size còn/hết · % giá đặt · định danh variant).
+    Chọn 1 dòng ở bảng để <b>sửa nội dung, chỉnh variant và convert ảnh sang CDN</b>.<br>
+    Hỗ trợ: Staples · Williams-Sonoma · Victoria's Secret · Revolve · Duluth Trading ·
+    Danner · Vionic · Talbots · Hernest · Bando · OGL Move · BestBuy. Site khác vẫn cào được bằng luật chung.<br>
+    ⚠️ Vionic/Duluth/Revolve/Danner chặn IP ngoài Mỹ — hãy chạy extension trong trình duyệt/profile có proxy US.<br>
+    Chưa có link sản phẩm? Sang tab <b>🔗 Cào link</b> để tick chọn sản phẩm ngay trên trang danh mục của site.
+  </p>
+
+<details id="boxLumi" class="box">
+  <summary>⚙️ Cấu hình CDN Lumi <span id="lblLumiState" class="tag ok">điền sẵn</span></summary>
+  <div class="box__body">
+    <label>API URL
+      <input id="inpLumiUrl" type="text" placeholder="https://lumi.vgplay.vn">
+    </label>
+    <label>Token
+      <input id="inpLumiToken" type="password" placeholder="Sanctum personal access token">
+    </label>
+    <div class="row buttons">
+      <button id="btnLumiSave" class="primary">💾 Lưu</button>
+      <button id="btnLumiTest">🔌 Kiểm tra đăng nhập</button>
+    </div>
+    <p class="hint">
+      Dùng để đưa ảnh lên CDN của Lumi (img.vgplay.vn). <b>Đã điền sẵn</b> nên không phải
+      nhập gì — chỉ đổi khi muốn dùng token riêng. Xoá trắng ô token thì tự quay về
+      token điền sẵn.
+    </p>
+  </div>
+</details>
+
+<textarea id="txtLinks" rows="5" placeholder="Mỗi dòng 1 link sản phẩm, VD:
+  https://www.revolve.com/.../dp/FREE-WJ291/
+  https://www.duluthtrading.com/mens-...-work-pants-45507.html?color=BRN
+  https://www.freepeople.com/shop/sky-dancing-midi-dress/?color=011
+  https://www.crateandbarrel.com/ninja-detect-power-blender-in-midnight-mocha/s555845
+  https://www.vionicshoes.com/elara-slide-sandal.html?color=1591"></textarea>
+
+<div class="row options">
+  <label>Tab cùng lúc:
+    <select id="selWorkers">
+      <option value="1">1</option>
+      <option value="2" selected>2</option>
+      <option value="3">3</option>
+    </select>
+  </label>
+  <label class="chk"><input id="chkModify" type="checkbox" checked> Chỉnh ảnh chống trùng</label>
+  <label title="Cột 'Giá ứng với % giá đặt' = Giá hiện tại × % (180 × 70% = 126). Sản phẩm đã chỉnh % riêng trong phần Chi tiết thì lấy % đó.">% giá đặt
+    <input id="inpPercent" type="number" step="0.1" min="0" value="70" style="width: 64px"></label>
+  <label class="chk" title="Tích vào thì cột 'Ảnh của toàn bộ variant' (gallery mọi màu) không có trong bảng copy sang Excel và file CSV">
+    <input id="chkHideAllImages" type="checkbox"> Ẩn cột Ảnh của toàn bộ variant</label>
+  <label class="chk" title="Tích vào thì cột 'Size của tất cả variant' (mỗi màu × width 1 dòng) không có trong bảng copy sang Excel và file CSV">
+    <input id="chkHideAllSizes" type="checkbox"> Ẩn cột Size của tất cả variant</label>
+  <label class="chk" title="Site 1 link chung mọi màu (Lands' End, Tommy Bahama, Duluth, Talbots...): mỗi màu xuất thành 1 sản phẩm riêng — tiêu đề, ảnh, size còn/hết và mã định danh riêng">
+    <input id="chkSplitColors" type="checkbox" checked> Tách mỗi màu thành 1 sản phẩm</label>
+  <span id="lblProgress" class="progress"></span>
+</div>
+
+<div class="row buttons">
+  <button id="btnStart" class="primary">🕷️ Bắt đầu cào</button>
+  <button id="btnTabs">🖐 Cào tab đang mở</button>
+  <button id="btnStop" class="danger" disabled>⏹ Dừng</button>
+  <button id="btnCopyImages">📋 Copy tất cả link ảnh</button>
+  <button id="btnCopySizes">📐 Copy size còn hàng</button>
+  <button id="btnCopyTsv">📄 Copy bảng đầy đủ (Excel)</button>
+  <button id="btnCsv">⬇️ Tải CSV</button>
+  <button id="btnRestore">♻️ Lấy lại kết quả cào</button>
+  <button id="btnUpdate" class="muted">🔄 Kiểm tra cập nhật</button>
+  <button id="btnClear" class="muted">🗑 Xoá</button>
+</div>
+
+<div id="boxTabs" class="update-box" hidden>
+  <b>Chọn tab sản phẩm để cào <span id="lblTabsCount" class="tag"></span></b>
+  <p class="hint">
+    Tự mở trang bằng tay là cách chắc nhất để vượt tường chặn: tự giải captcha, giữ
+    đăng nhập, tự bấm màu/size muốn lấy. Tool chỉ cào ngay trên tab đang mở —
+    <b>không mở tab mới, không tải lại, không đóng tab nào</b>. Kết quả nối tiếp vào
+    bảng đang có.
+  </p>
+  <div id="tabList" class="tab-list"></div>
+  <div class="row buttons">
+    <button id="btnTabsCrawl" class="primary">🕷️ Cào tab đã chọn</button>
+    <button id="btnTabsAll">Chọn tất cả</button>
+    <button id="btnTabsNone">Bỏ chọn tất cả</button>
+    <button id="btnTabsReload">↻ Tải lại danh sách</button>
+    <button id="btnTabsClose" class="muted">Đóng</button>
+  </div>
+</div>
+
+<div id="boxUpdate" class="update-box" hidden>
+  <b id="lblUpdate"></b>
+  <div class="row buttons">
+    <button id="btnDownload" class="primary">⬇️ Tải bản mới</button>
+    <button id="btnOpenExt">🧩 Mở trang extension</button>
+    <button id="btnHideUpdate" class="muted">Đóng</button>
+  </div>
+  <p class="hint">
+    Chrome không cho extension dạng "Load unpacked" tự thay code của chính nó, nên còn
+    2 bước tay: <b>giải nén đè lên thư mục đang dùng</b> → sang trang extension bấm
+    <b>↻ Reload</b> là xong.
+  </p>
+</div>
+
+<div id="tableWrap">
+  <table id="tbl">
+    <thead>
+      <tr><th>#</th><th>Site</th><th>Tiêu đề</th><th>Giá</th><th>Size</th><th>Hàng</th><th>Ảnh</th><th>Ảnh convert</th><th>Trạng thái</th><th>Thao tác</th></tr>
+    </thead>
+    <tbody id="tblBody"></tbody>
+  </table>
+</div>
+
+<section id="editor" class="editor" hidden>
+  <div class="editor__head">
+    <b id="edTitleHead">Chi tiết sản phẩm</b>
+    <a id="edLink" href="#" target="_blank" rel="noreferrer">mở link gốc ↗</a>
+  </div>
+
+  <label>Tiêu đề
+    <input id="edTitle" type="text">
+  </label>
+
+  <label>Ảnh size chart (link — Vionic tự có; site khác dán link ảnh đã lên CDN)
+    <input id="edSizeChart" type="text">
+  </label>
+
+  <div class="row">
+    <label class="col">Giá hiện tại
+      <input id="edPrice" type="number" step="0.01" min="0">
+    </label>
+    <label class="col" title="Giá ứng = giá hiện tại × %. Để trống = dùng % trên page.">% giá đặt
+      <input id="edPercent" type="number" step="0.1" min="0" value="70">
+    </label>
+    <span id="edListPrice" class="list-price"></span>
+  </div>
+
+  <label>Mô tả
+    <textarea id="edDesc" rows="4"></textarea>
+  </label>
+
+  <div id="edStock" class="stock-line"></div>
+
+  <label>Size &amp; Fit (số đo người mẫu / sản phẩm)
+    <textarea id="edSizeFit" rows="4"></textarea>
+  </label>
+
+  <div class="row editor__bar">
+    <b>Variant</b>
+    <span class="grow"></span>
+    <button id="btnVarAdd" class="mini">➕ Thêm dòng</button>
+    <button id="btnVarDel" class="mini danger">➖ Xoá dòng chọn</button>
+    <button id="btnVarCopy" class="mini">📋 Copy variant</button>
+  </div>
+  <table id="tblVar" class="mini-table">
+    <thead><tr><th>Tên</th><th>Giá trị (cách nhau dấu ; )</th></tr></thead>
+    <tbody id="tblVarBody"></tbody>
+  </table>
+
+  <div id="lblVarLines" class="editor__bar"><b>Variant chi tiết</b></div>
+  <table id="tblVarLines" class="mini-table">
+    <thead><tr><th>Dòng đầu = variant chính · các dòng sau = variant con</th></tr></thead>
+    <tbody id="tblVarLinesBody"></tbody>
+  </table>
+
+  <label>Link ảnh (mỗi dòng 1 link — thêm link thiếu vào đây)
+    <textarea id="edImages" rows="5"></textarea>
+  </label>
+
+  <div class="row buttons">
+    <button id="btnConvertOne" class="primary">🔁 Convert ảnh SP này</button>
+    <button id="btnConvertAll">⚡ Convert tất cả</button>
+    <button id="btnPasteImg">📋 Dán ảnh → CDN</button>
+    <button id="btnPickImg">📁 Chọn file ảnh</button>
+    <input id="filePick" type="file" accept="image/*" hidden>
+  </div>
+  <p class="hint">
+    Ảnh bảng <b>Size &amp; Fit / Size Guide</b>: chụp màn hình rồi bấm <b>Dán ảnh → CDN</b>
+    (hoặc Ctrl+V khi đang ở panel này) — ảnh sẽ được đưa lên CDN Lumi và nối vào cuối
+    danh sách link CDN bên dưới.
+  </p>
+
+  <div class="editor__bar">
+    <b id="lblCdn">Link CDN (sau convert)</b>
+    <span class="grow"></span>
+    <button id="btnCopyCdn" class="mini">📋 Copy tất cả</button>
+    <button id="btnCopyRow" class="mini">📄 Copy bảng SP này</button>
+  </div>
+  <table id="tblCdn" class="mini-table">
+    <thead><tr><th>#</th><th>Link CDN (bấm để copy)</th></tr></thead>
+    <tbody id="tblCdnBody"></tbody>
+  </table>
+</section>
+</div>
+
+<div id="viewLinks" class="view" hidden>
+  <p class="hint">
+    Lấy link sản phẩm từ <b>trang danh mục / trang tìm kiếm</b> của bất kỳ site nào:<br>
+    <b>1.</b> Tích ô <b>Hiện ô chọn trên các trang web</b> bên dưới.<br>
+    <b>2.</b> Mở trang danh mục của site — mỗi sản phẩm hiện <b>1 ô vuông</b> ở góc ảnh. Bấm ô để tick
+    (giữ <b>Shift</b> để tick cả dải), hoặc <b>Chọn tất cả</b> trên thanh nổi góc phải dưới trang.<br>
+    <b>3.</b> Bấm <b>Lấy link</b> (trên trang hoặc ở đây): link đã tick được <b>copy vào bộ nhớ tạm</b> và thêm
+    vào bảng dưới, link trùng tự bỏ. Chuyển trang/sang site khác rồi lặp lại.<br>
+    <b>4.</b> Lấy xong: <b>📄 Copy bảng</b> dán sang bảng link theo nhà, hoặc <b>➡️ Đẩy sang Cào site</b> để
+    tự dán link vào ô nhập link và cào luôn.
+  </p>
+
+  <div class="row options">
+    <label class="chk chk--big"><input id="chkLpEnabled" type="checkbox"> Hiện ô chọn trên các trang web</label>
+    <span id="lblLpState" class="tag"></span>
+  </div>
+
+  <div class="row buttons">
+    <button id="btnLpAll">☑️ Chọn tất cả trên trang đang xem</button>
+    <button id="btnLpNone">⬜ Bỏ chọn</button>
+    <button id="btnLpTake" class="primary">🔗 Lấy link đã chọn</button>
+  </div>
+
+  <div class="row buttons">
+    <button id="btnLpCopy" title="Copy dạng bảng (tách cột bằng Tab): dán vào Excel / Google Sheets là tự chia đúng 4 cột Nhà · Link · Tiêu đề · Ảnh">📄 Copy bảng (dán Excel/Sheets)</button>
+    <button id="btnLpCsv">⬇️ Tải CSV</button>
+    <button id="btnLpCopyLinks" title="Chỉ copy link, mỗi dòng 1 link">📋 Copy link</button>
+    <button id="btnLpPush" class="primary" title="Dán link vào ô nhập link của tab Cào site (link đã có trong ô thì bỏ qua)">➡️ Đẩy sang Cào site</button>
+    <button id="btnLpDelTicked" class="muted">➖ Xoá dòng tick</button>
+    <button id="btnLpClear" class="muted">🗑 Xoá bảng</button>
+  </div>
+  <div class="row options">
+    <label class="chk"><input id="chkLpHeader" type="checkbox" checked> Kèm dòng tiêu đề cột khi copy</label>
+    <span class="hint">Có dòng nào được tick thì các nút copy / tải / đẩy chỉ lấy dòng tick, không tick dòng nào thì lấy cả bảng.</span>
+  </div>
+
+  <div id="lblLpHouses" class="houses"></div>
+  <div id="lpWrap">
+    <table id="tblLp">
+      <thead>
+        <tr><th><input id="chkLpRows" type="checkbox" title="Tick / bỏ tick tất cả dòng"></th><th>#</th><th>Nhà</th><th>Ảnh</th><th>Tiêu đề</th><th>Link</th><th></th></tr>
+      </thead>
+      <tbody id="tblLpBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<pre id="log"></pre>
+
+<script src="lumi-default.js"></script>
+<script src="panel.js"></script>
+</body>
+</html>

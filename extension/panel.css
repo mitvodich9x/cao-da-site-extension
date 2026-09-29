@@ -1,0 +1,189 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 10px; background: #1c1c1c; color: #eee;
+  font-family: "Segoe UI", system-ui, sans-serif; font-size: 13px;
+  /* min-height chứ KHÔNG phải height: trước đây panel ép mọi thứ vào đúng 1 màn
+     hình nên ô dán link bị bóp còn 1 dòng và kéo rộng ra cũng bị bóp lại. */
+  display: flex; flex-direction: column; min-height: 100vh; gap: 8px;
+}
+/* Mặc định flex cho co lại — khoá hết để mỗi khối giữ đúng chiều cao của nó */
+body > * { flex: 0 0 auto; }
+header h1 { margin: 0 0 4px; font-size: 16px; color: #4da3ff; }
+.hint { margin: 0; color: #999; font-size: 11px; line-height: 1.5; }
+
+textarea {
+  width: 100%; resize: vertical; background: #141414; color: #eee;
+  border: 1px solid #444; border-radius: 4px; padding: 6px;
+  font-family: Consolas, monospace; font-size: 12px;
+  flex: 0 0 auto; min-height: 64px;
+}
+#txtLinks { min-height: 110px; }
+
+.row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.options label { color: #ccc; }
+select {
+  background: #222; color: #eee; border: 1px solid #444; border-radius: 4px; padding: 3px 6px;
+}
+.progress { color: #f1c40f; font-weight: bold; margin-left: auto; }
+
+button {
+  border: none; border-radius: 4px; padding: 6px 10px; cursor: pointer;
+  background: #34495e; color: #fff; font-weight: 600; font-size: 12px;
+}
+button:hover { filter: brightness(1.2); }
+button:disabled { background: #444 !important; color: #888; cursor: default; }
+button.primary { background: #0078d7; }
+button.danger { background: #c0392b; }
+button.muted { background: #555; }
+
+#tableWrap {
+  flex: 0 0 auto; max-height: 44vh; min-height: 90px; overflow: auto;
+  border: 1px solid #333; border-radius: 4px;
+}
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: 4px 6px; border-bottom: 1px solid #2a2a2a; text-align: left; white-space: nowrap; }
+th { position: sticky; top: 0; background: #222; color: #bbb; z-index: 1; }
+td.title { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+tr:hover td { background: #242424; }
+
+.st-OK { color: #2ecc71; font-weight: bold; }
+.st-PARTIAL { color: #f1c40f; font-weight: bold; }
+.st-BLOCKED { color: #e67e22; font-weight: bold; }
+.st-ERROR { color: #e74c3c; font-weight: bold; }
+
+td .mini {
+  padding: 2px 6px; font-size: 11px; margin-right: 3px;
+}
+td .copy { background: #16a085; }
+td .open { background: #34495e; }
+td .retry { background: #7f8c8d; }
+
+#log {
+  height: 90px; min-height: 90px; flex: 0 0 auto; overflow: auto; margin: 0; padding: 5px;
+  background: #141414; color: #9ad; border: 1px solid #333; border-radius: 4px;
+  font-family: Consolas, monospace; font-size: 11px; white-space: pre-wrap;
+}
+
+
+/* ── Cấu hình Lumi (khối gập) ─────────────────────────────────────────── */
+.box {
+  background: #202020; border: 1px solid #333; border-radius: 4px; padding: 6px 8px;
+}
+.box summary { cursor: pointer; color: #ccc; font-weight: 600; }
+.box__body { padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.box__body label { display: flex; flex-direction: column; gap: 3px; color: #bbb; font-size: 11px; }
+input[type=text], input[type=password], input[type=number] {
+  background: #141414; color: #eee; border: 1px solid #444; border-radius: 4px;
+  padding: 5px 6px; font-size: 12px; width: 100%;
+}
+.tag {
+  font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #333; color: #aaa;
+  font-weight: 600;
+}
+.tag.ok { background: #1e4d33; color: #7dcea0; }
+.tag.warn { background: #4d3b1e; color: #f1c40f; }
+.tag.err { background: #4d2020; color: #e88; }
+.chk { display: inline-flex; align-items: center; gap: 4px; color: #f1c40f; font-size: 11px; }
+
+/* ── Khung biên tập 1 sản phẩm ────────────────────────────────────────── */
+.editor {
+  background: #202020; border: 1px solid #333; border-radius: 4px; padding: 8px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+/* display:flex ở trên đè mất thuộc tính hidden của HTML -> phải khai lại,
+   nếu không khung Chi tiết hiện ngay cả khi chưa chọn sản phẩm nào. */
+[hidden] { display: none !important; }
+.editor > label { display: flex; flex-direction: column; gap: 3px; color: #bbb; font-size: 11px; }
+.editor__head { display: flex; align-items: center; gap: 8px; color: #4da3ff; }
+.editor__head a { color: #7fb3d5; font-size: 11px; margin-left: auto; }
+.editor__bar { display: flex; align-items: center; gap: 6px; color: #ccc; font-size: 12px; }
+.editor__bar .grow, .row .grow { flex: 1; }
+.editor .col { flex: 0 0 110px; }
+.list-price { color: #2ecc71; font-weight: bold; }
+.stock-line { font-weight: 600; font-size: 12px; }
+.stock-line.stock-in { color: #2ecc71; }
+.stock-line.stock-out { color: #e74c3c; }
+.stock-line.stock-partial { color: #e67e22; }
+.stock-line.stock-unknown { color: #95a5a6; }
+.stock-line.stock-error { color: #c0392b; }
+
+.mini-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+.mini-table th {
+  text-align: left; color: #888; font-weight: 600; border-bottom: 1px solid #333; padding: 3px 4px;
+}
+.mini-table td { padding: 2px 4px; border-bottom: 1px solid #2a2a2a; word-break: break-all; }
+.mini-table tr.is-active { background: #2a3b4d; }
+.mini-table td.is-main { color: #f1c40f; font-weight: bold; }
+.mini-table input { padding: 2px 4px; font-size: 11px; }
+#tblCdnBody tr { cursor: pointer; }
+#tblCdnBody tr:hover { background: #223; }
+#tblVarLinesBody td { font-family: Consolas, monospace; color: #b8d8c0; }
+
+/* ── Cột "Hàng" — còn/hết hàng ───────────────────────────────────────── */
+td.stock { white-space: nowrap; font-weight: 600; }
+td.stock-in { color: #2ecc71; }
+td.stock-out { color: #e74c3c; }
+td.stock-partial { color: #e67e22; }
+td.stock-unknown { color: #95a5a6; }
+td.stock-error { color: #c0392b; }
+td.sizes { max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#tblBody tr.is-active { background: #23394d; }
+#tblBody tr { cursor: pointer; }
+
+/* Bảng phụ trong khung biên tập: dài thì tự cuộn, không kéo dài panel vô tận */
+#tblVarLines, #tblCdn { display: block; max-height: 160px; overflow: auto; }
+#tblVar { display: block; max-height: 140px; overflow: auto; }
+#tblVar thead, #tblVarLines thead, #tblCdn thead,
+#tblVar tbody, #tblVarLines tbody, #tblCdn tbody { display: table; width: 100%; }
+.editor textarea { min-height: 56px; }
+td.cdn-count { color: #888; font-weight: 600; }
+td.cdn-count.is-done { color: #2ecc71; }
+
+/* Thông báo có bản extension mới */
+.update-box {
+  background: #23303d; border: 1px solid #3d5a75; border-radius: 4px; padding: 8px;
+  display: flex; flex-direction: column; gap: 6px;
+}
+.update-box b { color: #f1c40f; }
+
+/* ── Danh sách tab đang mở (cào thủ công) ─────────────────────────────── */
+.tab-list {
+  max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 2px;
+  background: #141414; border: 1px solid #333; border-radius: 4px; padding: 4px;
+}
+.tab-list label {
+  display: flex; align-items: flex-start; gap: 6px; padding: 3px 4px; border-radius: 3px;
+  color: #ddd; font-size: 11px; cursor: pointer;
+}
+.tab-list label:hover { background: #222; }
+.tab-list input { margin-top: 2px; }
+.tab-list .tab-title { color: #eee; }
+.tab-list .tab-url { color: #888; word-break: break-all; }
+.tab-list .tab-off { color: #e88; }
+.tab-list .empty { color: #888; padding: 6px; }
+
+/* ── Thanh tab: Cào site / Cào link ───────────────────────────────────── */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid #333; }
+.tabs .tab {
+  background: transparent; color: #aaa; border-radius: 4px 4px 0 0; padding: 7px 14px;
+  border: 1px solid transparent; border-bottom: none; margin-bottom: -1px; font-size: 13px;
+}
+.tabs .tab.is-active { background: #1c1c1c; color: #4da3ff; border-color: #333; }
+.view { display: flex; flex-direction: column; gap: 8px; }
+.view > * { flex: 0 0 auto; }
+
+/* ── Tab Cào link ─────────────────────────────────────────────────────── */
+.chk--big { font-size: 13px; font-weight: 600; }
+.chk--big input { width: 16px; height: 16px; }
+.houses { display: flex; flex-wrap: wrap; gap: 4px; }
+.houses .tag { font-size: 11px; }
+#lpWrap {
+  max-height: 52vh; min-height: 90px; overflow: auto; border: 1px solid #333; border-radius: 4px;
+}
+#tblLp td { vertical-align: middle; }
+#tblLp td.lp-title { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+#tblLp td.lp-link { max-width: 200px; overflow: hidden; text-overflow: ellipsis; color: #7fb3d5; }
+#tblLp td.lp-house { color: #f1c40f; font-weight: 600; }
+#tblLp img { width: 40px; height: 40px; object-fit: cover; border-radius: 3px; background: #222; display: block; }
+#tblLp tr.house-start td { border-top: 2px solid #3d5a75; }
+#tblLp tr.is-ticked td { background: #1f3346; }

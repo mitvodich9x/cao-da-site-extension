@@ -1,0 +1,9 @@
+# zip do release.ps1 đóng
+release/
+
+# token CDN Lumi điền sẵn — repo công khai nên không đưa lên git, release.ps1 đóng vào zip
+extension/lumi-default.js
+
+__pycache__/
+*.pyc
+scratch/
