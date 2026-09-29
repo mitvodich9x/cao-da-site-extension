@@ -246,6 +246,7 @@ function saveExportOpts() {
             hide_all_images: !!($('chkHideAllImages') && $('chkHideAllImages').checked),
             hide_all_sizes: !!($('chkHideAllSizes') && $('chkHideAllSizes').checked),
             split_colors: splitColors(),
+            page_wait: pageWait(),
         } });
     } catch (e) { /* bỏ qua */ }
 }
@@ -256,6 +257,13 @@ function restoreExportOpts(opts) {
     if ($('chkHideAllImages')) $('chkHideAllImages').checked = !!opts.hide_all_images;
     if ($('chkHideAllSizes')) $('chkHideAllSizes').checked = !!opts.hide_all_sizes;
     if ($('chkSplitColors') && opts.split_colors != null) $('chkSplitColors').checked = !!opts.split_colors;
+    if ($('inpPageWait') && opts.page_wait != null) $('inpPageWait').value = opts.page_wait;
+}
+
+// Ô "Chờ mỗi trang" (giây): background đọc sc_opts.page_wait mỗi lần mở 1 trang để cào
+function pageWait() {
+    const n = Number($('inpPageWait') ? $('inpPageWait').value : 40);
+    return isFinite(n) && n >= 5 ? Math.min(n, 300) : 40;
 }
 
 // ==== còn/hết hàng ==========================================================
@@ -1210,6 +1218,7 @@ function setRunning(running) {
 
 function wire() {
     $('btnStart').addEventListener('click', () => {
+        saveExportOpts();       // ô "Chờ mỗi trang" vừa gõ mà chưa rời ô vẫn được áp dụng
         chrome.runtime.sendMessage({
             cmd: 'start',
             text: $('txtLinks').value,
@@ -1356,7 +1365,7 @@ function wire() {
     });
 
     // ---- tuỳ chọn xuất (checklist eBay) ----
-    ['inpPercent', 'chkHideAllImages', 'chkHideAllSizes', 'chkSplitColors'].forEach((id) => {
+    ['inpPercent', 'chkHideAllImages', 'chkHideAllSizes', 'chkSplitColors', 'inpPageWait'].forEach((id) => {
         if ($(id)) $(id).addEventListener('change', saveExportOpts);
     });
     if ($('chkSplitColors')) $('chkSplitColors').addEventListener('change', renderAll);

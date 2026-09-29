@@ -22,6 +22,17 @@ const SETTLE_MS = 3500;       // chờ trang render trước lần extract đầ
 const POLL_MS = 1500;         // giãn cách giữa các lần poll
 const MAX_POLLS = 6;
 const NAV_TIMEOUT_MS = 40000;
+// Thời gian chờ TỐI ĐA 1 trang tải xong hẳn trước khi cào — ô "Chờ mỗi trang" trên panel
+// (sc_opts.page_wait, giây). Trang tải xong sớm hơn thì cào luôn, quá hạn thì vẫn cào.
+const PAGE_WAIT_DEFAULT_S = 40;
+async function pageWaitMs() {
+    try {
+        const saved = await chrome.storage.local.get('sc_opts');
+        const s = Number(saved && saved.sc_opts && saved.sc_opts.page_wait);
+        if (isFinite(s) && s >= 5) return Math.min(s, 300) * 1000;
+    } catch (e) { /* không đọc được -> mặc định */ }
+    return PAGE_WAIT_DEFAULT_S * 1000;
+}
 const EXTRACT_TIMEOUT_MS = 30000;   // 1 lần chạy extract (kể cả fetch dữ liệu màu khác)
 const RETRIES = 1;            // số lần cào lại 1 link khi PARTIAL/ERROR
 
@@ -312,6 +323,21 @@ async function waitTabReadable(tabId, timeoutMs) {
     return 'timeout';
 }
 
+// Chờ tab tải XONG HẲN (status "complete") như bản trước 1.6.1 — khách 2026-09-29: cào ngay
+// khi DOM đọc được thì nhiều trang chưa kịp nạp size/tồn kho. Có hạn giờ (ô "Chờ mỗi trang"):
+// quá hạn trả 'timeout' nhưng người gọi vẫn cào trang đang có.
+async function waitTabLoaded(tabId, timeoutMs) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+        let tab = null;
+        try { tab = await chrome.tabs.get(tabId); } catch (e) { return 'gone'; }
+        if (tab && tab.status === 'complete' && tab.url && !/^about:blank/.test(tab.url)) return '';
+        if (state.stopFlag) return 'stopped';
+        await sleep(500);
+    }
+    return 'timeout';
+}
+
 // Promise có hạn giờ: executeScript không bao giờ tự bỏ cuộc nếu luật cào chờ 1 fetch treo
 function withTimeout(promise, ms) {
     let timer = null;
@@ -324,12 +350,17 @@ function withTimeout(promise, ms) {
 async function crawlOnce(url) {
     let tab = null;
     try {
+        const waitMs = await pageWaitMs();
         tab = await chrome.tabs.create({ url, active: false });
-        const nav = await waitTabReadable(tab.id, NAV_TIMEOUT_MS);
+        const t0 = Date.now();
+        const nav = await waitTabLoaded(tab.id, waitMs);
         if (nav === 'gone') return emptyRecord(url, 'ERROR', 'Tab bị đóng khi đang tải.');
+        log('   ⏳ ' + (nav === 'timeout'
+            ? 'Trang chưa tải xong sau ' + Math.round(waitMs / 1000) + 's — vẫn cào phần đã có'
+            : 'Trang tải xong sau ' + Math.round((Date.now() - t0) / 1000) + 's'));
         const best = await extractFromTab(tab.id, url);
         return best || emptyRecord(url, 'ERROR',
-            nav === 'timeout' ? 'Trang tải quá lâu (40s).' : 'Không lấy được dữ liệu từ trang.');
+            nav === 'timeout' ? 'Trang tải quá lâu (' + Math.round(waitMs / 1000) + 's).' : 'Không lấy được dữ liệu từ trang.');
     } catch (e) {
         return emptyRecord(url, 'ERROR', String(e).slice(0, 300));
     } finally {
