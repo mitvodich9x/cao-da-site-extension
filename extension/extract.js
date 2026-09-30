@@ -3146,6 +3146,173 @@ async (opts) => {
         };
     };
 
+    // ================= MACKENZIE-CHILDS =================
+    // ============================================================
+    // MACKENZIE-CHILDS (Salesforce Commerce SFRA) — kiểm 2026-09-30
+    // ============================================================
+    // Link /<slug>/<id variant>.html (8922SET1115 = Pretty As A Bow × Set of 3). Trang có 2 trục
+    // swatch: matrixPattern (hoa văn = "màu") và matrixSize (Small/Medium/Large/Set of 3), bấm
+    // ô chỉ gọi API chứ không đổi trang -> coi như 1 link chung mọi màu, tách mỗi hoa văn 1 dòng.
+    // Nguồn: API SFRA cùng origin
+    //   GET /on/demandware.store/Sites-MacKenzie-Childs-Site/en_US/Product-Variation?pid=<id>&quantity=1
+    //   -> product {id, productName (RIÊNG từng hoa văn: "Strawberry Canisters, Set of 3"),
+    //      price.sales/list, available, images['hi-res'][] (width=1000), variationAttributes[]
+    //      {id, values[{value, displayValue, selectable, selected, url}]}, shortDescription,
+    //      dimensions / materialDescription / careAndUse + pdpAttributes (tên hiển thị)}
+    //   values[].url = sẵn link API của hoa văn đó × size đang chọn -> gọi 1 lần/hoa văn.
+    // Size còn/hết của 1 hoa văn = values[matrixSize].selectable trong JSON của hoa văn đó
+    // (size đang chọn thì xét thêm available). Giá mỗi dòng = giá size của link.
+    // Ảnh CDN nhận width tuỳ ý (3000 vẫn ra) -> lấy width=2000.
+    // BẪY: khối mô tả trên trang lồng nhau (Materials nằm TRONG Dimensions) -> dựng mô tả
+    //   từ JSON, không cắt DOM.
+    const mcStore = () => {
+        try { return window.__scMcVar || (window.__scMcVar = {}); } catch (e) { return {}; }
+    };
+    const mcDetail = () => document.querySelector('.product-detail[data-pid]');
+    const mcPid = () => {
+        const el = mcDetail();
+        if (el) return S(el.getAttribute('data-pid'));
+        const m = location.pathname.match(/\/([A-Z0-9]+)\.html$/i);
+        return m ? m[1] : '';
+    };
+    const mcApiBase = () => {
+        const b = document.querySelector('button[data-url*="/Product-Variation"]');
+        const m = b && S(b.getAttribute('data-url')).match(/^(.*\/Product-Variation)\?/);
+        return m ? m[1] : '/on/demandware.store/Sites-MacKenzie-Childs-Site/en_US/Product-Variation';
+    };
+    const mcFetch = (url, signal) => fetch(url, { credentials: 'include', signal: signal,
+            headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        .then((r) => (r.ok ? r.json() : null)).then((j) => (j && j.product) || null).catch(() => null);
+    const mcAxes = (p) => {
+        const list = (p && p.variationAttributes) || [];
+        const color = list.filter((a) => /pattern|colou?r/i.test(S(a.id)))[0] || null;
+        const size = list.filter((a) => a !== color && /size/i.test(S(a.id)))[0] || null;
+        return { color: color, size: size };
+    };
+    const mcSel = (a) => (a && (a.values || []).filter((v) => v.selected)[0]) || null;
+    const mcPrefetch = async () => {
+        const pid = mcPid();
+        if (!pid) return;
+        const st = mcStore();
+        if (st.pid === pid && st.cur && st.done) return;
+        const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+        const timer = setTimeout(() => { if (ctl) ctl.abort(); }, 10000);
+        const sig = ctl ? ctl.signal : undefined;
+        if (st.pid !== pid || !st.cur) {
+            st.pid = pid;
+            st.byColor = {};
+            st.cur = await mcFetch(mcApiBase() + '?pid=' + encodeURIComponent(pid) + '&quantity=1', sig);
+        }
+        const cur = st.cur;
+        const ax = mcAxes(cur);
+        if (cur && ax.color) {
+            const curSel = mcSel(ax.color);
+            if (curSel) st.byColor[S(curSel.value)] = cur;
+            const todo = (ax.color.values || []).filter((v) => v.url && !st.byColor[S(v.value)]);
+            await Promise.all(todo.map((v) => mcFetch(v.url, sig).then((p) => { if (p) st.byColor[S(v.value)] = p; })));
+        }
+        clearTimeout(timer);
+        st.done = true;
+        log('mc: Product-Variation ' + (cur ? cur.id : 'lỗi') + ', '
+            + Object.keys(st.byColor || {}).length + '/' + (ax.color ? (ax.color.values || []).length : 0) + ' hoa văn');
+    };
+    const mcCur = () => { const st = mcStore(); return st.pid === mcPid() ? st.cur : null; };
+    const mcImages = (p) => {
+        const im = (p && p.images) || {};
+        const list = im['hi-res'] || im.large || [];
+        return list.filter((x) => x && x.url).map((x) => abs(S(x.url).replace(/([?&]width=)\d+/, (m, a) => a + '2000')));
+    };
+    const mcPriceOf = (p) => {
+        const pr = p && p.price;
+        if (!pr) return null;
+        const pick = (o) => (o && o.value != null && isFinite(Number(o.value)) ? Number(o.value) : null);
+        const sales = pick(pr.sales) || (pr.min ? pick(pr.min.sales) : null);
+        const list = pick(pr.list) || (pr.min ? pick(pr.min.list) : null);
+        return sales ? { price: sales, list_price: list && list > sales ? list : null } : null;
+    };
+    // Size của 1 hoa văn: [{s: 'Set of 3', ok: true}] theo thứ tự site
+    const mcSizes = (p) => {
+        const a = mcAxes(p).size;
+        if (!a) return null;
+        return (a.values || []).map((v) => ({ s: S(v.displayValue || v.value).trim(),
+            ok: v.selectable !== false && (!v.selected || p.available !== false) })).filter((z) => z.s);
+    };
+    const mcDescSections = () => {
+        const p = mcCur();
+        const out = [];
+        const intro = p ? S(p.shortDescription).trim() : '';
+        const introEl = document.querySelector('.description-and-detail .short-description');
+        if (intro) out.push({ title: 'Details', kind: 'description', html: /<[a-z]/i.test(intro) ? intro : '<p>' + escHtml(decodeHtml(intro)) + '</p>' });
+        else if (introEl) out.push({ title: 'Details', kind: 'description', el: introEl });
+        if (!p) return out;
+        const names = {};
+        (p.pdpAttributes || []).forEach((a) => { names[S(a.attributeName)] = S(a.displayName); });
+        [['dimensions', 'Dimensions', 'details'], ['materialDescription', 'Materials', 'fit_care'],
+         ['careAndUse', 'Care and Use', 'fit_care']].forEach((d) => {
+            const v = typeof p[d[0]] === 'string' ? p[d[0]].trim() : '';
+            if (!v) return;
+            out.push({ title: names[d[0]] || d[1], kind: d[2],
+                       html: /<[a-z]/i.test(v) ? v : '<p>' + escHtml(decodeHtml(v)).replace(/\r?\n/g, '<br>') + '</p>' });
+        });
+        return out;
+    };
+    const mcExtra = () => {
+        const cur = mcCur();
+        if (!cur) { log('mc: chưa gọi được Product-Variation'); return null; }
+        const st = mcStore();
+        const ax = mcAxes(cur);
+        const curSel = mcSel(ax.color);
+        const curName = curSel ? S(curSel.displayValue || curSel.value).trim() : '';
+        const rows = ax.color ? (ax.color.values || []).map((v) => {
+            const p = (st.byColor || {})[S(v.value)] || null;
+            return { code: S(v.value), name: S(v.displayValue || v.value).trim(), p: p, sizes: p ? mcSizes(p) : null };
+        }) : [];
+        const me = rows.filter((r) => r.name === curName)[0] || null;
+        const curSizes = mcSizes(cur) || [];
+        const live = rows.filter((r) => r === me || !r.sizes || r.sizes.some((z) => z.ok));
+        const dead = rows.filter((r) => live.indexOf(r) < 0).map((r) => r.name);
+        if (dead.length) warnings.push('Hoa văn hết sạch mọi size: ' + dead.join(', '));
+        const missing = rows.filter((r) => !r.p).map((r) => r.name);
+        if (missing.length) warnings.push('Không gọi được dữ liệu hoa văn: ' + missing.join(', '));
+        const matrix = live.filter((r) => r.sizes).map((r) => ({
+            color: r.name, variant: '',
+            sizes_in_stock: r.sizes.filter((z) => z.ok).map((z) => z.s),
+            sizes_out_of_stock: r.sizes.filter((z) => !z.ok).map((z) => z.s),
+        }));
+        const allImages = [], imgColors = {}, codes = {}, prices = {}, titles = {};
+        (me ? [me] : []).concat(live.filter((r) => r !== me)).forEach((r) => {
+            if (!r.p) return;
+            // Mã màu = id variant (8922SET1145): panel thay id này vào link -> link riêng của hoa văn
+            codes[r.name] = S(r.p.id);
+            titles[r.name] = decodeHtml(S(r.p.productName));
+            const pr = mcPriceOf(r.p);
+            if (pr) prices[r.name] = pr;
+            mcImages(r.p).forEach((u) => { if (allImages.indexOf(u) < 0) { allImages.push(u); imgColors[u] = r.name; } });
+        });
+        const sizes = curSizes.map((z) => z.s);
+        const inStock = curSizes.filter((z) => z.ok).map((z) => z.s);
+        const cp = mcPriceOf(cur);
+        log('mc: ' + cur.id + ' ' + (curName || '?') + ', ' + live.length + ' hoa văn còn bán, '
+            + sizes.length + ' size (' + inStock.length + ' còn), giá ' + (cp ? cp.price : '?'));
+        return {
+            current_color: curName,
+            color_label: ax.color ? S(ax.color.displayName || 'Pattern') : '',
+            colors: live.map((r) => r.name),
+            size_label: ax.size ? S(ax.size.displayName || 'Size') : '',
+            sizes: sizes,
+            sizes_in_stock: inStock,
+            sizes_out_of_stock: sizes.filter((s) => inStock.indexOf(s) < 0),
+            stock_matrix: matrix,
+            in_stock: sizes.length ? inStock.length > 0 : cur.available !== false,
+            list_price: cp ? cp.list_price : null,
+            all_images: allImages.length ? allImages : null,
+            image_colors: Object.keys(imgColors).length ? imgColors : null,
+            color_codes: codes,
+            color_prices: prices,
+            color_titles: titles,
+        };
+    };
+
     // ================= PERSONAL CREATIONS =================
     // ============================================================
     // PERSONAL CREATIONS (PlanetArt, PHP + jQuery) — kiểm chứng 2026-09-24
@@ -5667,6 +5834,33 @@ async (opts) => {
             extra: () => efExtra(),
         },
 
+        // --- MacKenzie-Childs (SFRA) — xem khối MACKENZIE-CHILDS ở trên. Chung 1 trang mọi hoa văn. ---
+        'mackenzie-childs.com': {
+            ready: '.product-detail[data-pid]',
+            identity: 'color+variant',
+            prefetch: () => mcPrefetch(),
+            title: () => {
+                const p = mcCur();
+                if (p && p.productName) return decodeHtml(p.productName);
+                const ld = ldProduct();
+                return ld ? decodeHtml(ld.name) : selText('h1');
+            },
+            price: () => {
+                const pr = mcPriceOf(mcCur());
+                return pr ? { value: pr.price, currency: 'USD' } : ldPrice();
+            },
+            description: () => {
+                const p = mcCur();
+                return p && p.shortDescription ? htmlToText(p.shortDescription) : ldDesc();
+            },
+            descriptionSections: () => mcDescSections(),
+            images: () => {
+                const list = mcImages(mcCur());
+                return list.length ? list : ldImages().map((u) => S(u).split('?')[0] + '?format=jpg&width=2000');
+            },
+            extra: () => mcExtra(),
+        },
+
         'personalcreations.com': {
             ready: '#price-container, .product-thumbnails',
             identity: 'color',                 // ?attr9=<design> trên URL chọn design
@@ -5913,6 +6107,7 @@ async (opts) => {
         // mỗi màu thành 1 sản phẩm lúc xuất (exporter.split_by_color).
         color_codes: {},
         color_prices: {},
+        color_titles: {},        // {màu: tiêu đề riêng của màu} — site mỗi màu 1 tên (MacKenzie-Childs)
         details: '',
         fit_care: '',
         // Size & Fit (số đo người mẫu + số đo sản phẩm) và link bảng Size Guide

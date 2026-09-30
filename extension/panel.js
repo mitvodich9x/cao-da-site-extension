@@ -805,7 +805,10 @@ function splitByColor(recs) {
                 rec.stock_matrix = mRows;
                 rec.in_stock = ins.length > 0;
             }
-            rec.title_fixed = fixedTitle(r.brand, r.title, color);
+            // Site mỗi màu 1 tên riêng (MacKenzie-Childs: "Strawberry Canisters, Set of 3")
+            const ownTitle = String(pick(r.color_titles || {}, color) || '').trim();
+            if (ownTitle) rec.title = ownTitle;
+            rec.title_fixed = fixedTitle(r.brand, rec.title, color);
             // Đã tách thì cột "Ảnh của toàn bộ variant" chỉ còn ảnh của chính màu này
             const ownAll = allImages.filter((u) => sameText(imgColors[u], color));
             rec.all_images = ownAll.length ? ownAll : list(rec.images);

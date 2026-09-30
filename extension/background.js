@@ -90,7 +90,7 @@ const EXTRA_TEXT_FIELDS = ['color_label', 'size_label', 'details', 'fit_care',
                           'size_fit', 'size_guide_url', 'size_guide_button',
                           'current_color', 'variant_label', 'current_variant',
                           'brand', 'title_fixed', 'identity_kind', 'description_html'];
-const EXTRA_MAP_FIELDS = ['image_colors', 'color_codes'];
+const EXTRA_MAP_FIELDS = ['image_colors', 'color_codes', 'color_titles'];
 const EXTRA_NUM_FIELDS = ['list_price'];
 
 function emptyExtra() {
