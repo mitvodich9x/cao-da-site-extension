@@ -34,6 +34,15 @@ async function pageWaitMs() {
     return PAGE_WAIT_DEFAULT_S * 1000;
 }
 const EXTRACT_TIMEOUT_MS = 30000;   // 1 lần chạy extract (kể cả fetch dữ liệu màu khác)
+// Amazon "cào tất cả màu": extract tải thêm trang riêng của từng màu (ngân sách 150s) -> nới hạn
+const EXTRACT_TIMEOUT_ALL_MS = 200000;
+// Ô "Amazon: cào tất cả màu" trên panel (sc_opts.amazon_all) — mặc định TẮT = cào 1 link đơn
+async function amazonAllMode() {
+    try {
+        const saved = await chrome.storage.local.get('sc_opts');
+        return !!(saved && saved.sc_opts && saved.sc_opts.amazon_all);
+    } catch (e) { return false; }
+}
 const RETRIES = 1;            // số lần cào lại 1 link khi PARTIAL/ERROR
 
 export function baseDomain(url) {
@@ -269,6 +278,7 @@ async function fetchEbayDescription(url) {
 async function extractFromTab(tabId, url, settleMs) {
     let best = null, bestScore = -1;
     const opts = { debug: false, url };
+    if (/(^|\.)amazon\.com$/i.test(baseDomain(url)) && await amazonAllMode()) opts.amazon_all = true;
     const descHtml = await fetchEbayDescription(url);
     if (descHtml) opts.descHtml = descHtml;
     for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
@@ -282,7 +292,7 @@ async function extractFromTab(tabId, url, settleMs) {
                 // Gửi kèm link gốc: site redirect (đổi slug) có thể làm rơi ?color=
                 // khỏi location, adapter vẫn biết người dùng muốn màu nào.
                 args: [opts],
-            }), EXTRACT_TIMEOUT_MS);
+            }), opts.amazon_all ? EXTRACT_TIMEOUT_ALL_MS : EXTRACT_TIMEOUT_MS);
             raw = res && res[0] ? res[0].result : null;
         } catch (e) {
             log('   ⚠️ extract lỗi lần ' + (attempt + 1) + ': ' + String(e).slice(0, 150));

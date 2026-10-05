@@ -4302,8 +4302,14 @@ async (opts) => {
     // Tường chặn: "Click the button below to continue shopping" (form validateCaptcha, KHÔNG có
     // ảnh captcha) -> tự submit form rồi poll lại; "Enter the characters you see below"
     // (có ảnh captcha) -> báo blocked.
-    const amzScriptText = (needle, needle2) => {
-        const s = [].slice.call(document.querySelectorAll('script'))
+    // 2 CHẾ ĐỘ (khách 2026-10-05 — mỗi màu Amazon thường là 1 MẪU khác hẳn, VD tranh canvas):
+    //   · mặc định (cào 1 link đơn): chỉ màu của link — ảnh, size, giá của đúng ASIN đó; không
+    //     trả danh sách/ảnh/mã/giá màu khác.
+    //   · opts.amazon_all (ô "Amazon: cào tất cả màu" trên panel): prefetch tải HTML trang /dp/<ASIN>
+    //     của từng màu (cùng size với link) -> đủ gallery, size còn/hết, giá từng màu; identity
+    //     color+variant để bảng tách mỗi màu 1 dòng. Gặp captcha giữa chừng thì dừng tải thêm.
+    const amzScriptText = (needle, needle2, doc) => {
+        const s = [].slice.call((doc || document).querySelectorAll('script'))
             .find((x) => S(x.textContent).indexOf(needle) >= 0
                 && (!needle2 || S(x.textContent).indexOf(needle2) >= 0));
         return s ? S(s.textContent) : '';
@@ -4334,11 +4340,14 @@ async (opts) => {
     };
     let _amzTw;
     const amzTwister = () => {
-        if (_amzTw !== undefined) return _amzTw;
-        const txt = amzScriptText('twister-js-init-dpx-data', 'dimensionToAsinMap');
-        if (!txt) { _amzTw = null; return null; }
+        if (_amzTw === undefined) _amzTw = amzTwisterOf(document);
+        return _amzTw;
+    };
+    const amzTwisterOf = (doc) => {
+        const txt = amzScriptText('twister-js-init-dpx-data', 'dimensionToAsinMap', doc);
+        if (!txt) return null;
         const get = (k) => amzJsonAfter(txt, k);
-        _amzTw = {
+        return {
             dims: get('dimensions') || [],
             values: get('variationValues') || {},
             selected: get('selectedVariationValues') || {},
@@ -4347,7 +4356,6 @@ async (opts) => {
             display: get('dimensionValuesDisplayData') || {},
             asin: get('currentAsin') || '',
         };
-        return _amzTw;
     };
     // jQuery.parseJSON('...') trong script ảnh: chuỗi JS nháy đơn -> bỏ \' trước khi JSON.parse
     const amzParseJsStr = (txt, start) => {
@@ -4359,14 +4367,15 @@ async (opts) => {
         try { return JSON.parse(txt.slice(b, j).replace(/\\'/g, "'")); } catch (e) { return null; }
     };
     const amzImgUrl = (x) => S(x && (x.hiRes || x.large || (x.main && Object.keys(x.main).pop())));
-    const amzImages = () => {
-        const txt = amzScriptText('ImageBlockATF', "'initial'");
+    const amzImages = (doc) => {
+        doc = doc || document;
+        const txt = amzScriptText('ImageBlockATF', "'initial'", doc);
         const i = txt.indexOf("'initial'");
         const arr = i >= 0 ? amzParseJsStr(txt, i) : null;
         let list = (arr || []).map(amzImgUrl).filter(Boolean);
         if (!list.length) {
             // Dự phòng: data-a-dynamic-image của ảnh chính -> URL lớn nhất
-            const el = document.querySelector('#landingImage[data-a-dynamic-image], #imgBlkFront[data-a-dynamic-image]');
+            const el = doc.querySelector('#landingImage[data-a-dynamic-image], #imgBlkFront[data-a-dynamic-image]');
             let dyn = {};
             try { dyn = JSON.parse(S(el && el.getAttribute('data-a-dynamic-image')) || '{}'); } catch (e) { dyn = {}; }
             const best = Object.keys(dyn).sort((a, b) => (dyn[b][0] || 0) - (dyn[a][0] || 0))[0];
@@ -4396,8 +4405,9 @@ async (opts) => {
         return parsePrice(t);
     };
     const AMZ_PRICE_BOX = '#corePriceDisplay_desktop_feature_div, #corePrice_desktop, #corePrice_feature_div, #apex_desktop';
-    const amzPrice = () => {
-        const el = document.querySelector('.twister-plus-buying-options-price-data');
+    const amzPrice = (doc) => {
+        doc = doc || document;
+        const el = doc.querySelector('.twister-plus-buying-options-price-data');
         if (el) {
             try {
                 const j = JSON.parse(S(el.textContent));
@@ -4405,16 +4415,16 @@ async (opts) => {
                 if (g) return { value: Number(g.priceAmount), currency: S(g.currencySymbol) === '$' ? 'USD' : (parsePrice(g.displayPrice) || {}).currency || 'USD' };
             } catch (e) { /* bỏ */ }
         }
-        const boxes = [].slice.call(document.querySelectorAll(AMZ_PRICE_BOX));
+        const boxes = [].slice.call(doc.querySelectorAll(AMZ_PRICE_BOX));
         for (let i = 0; i < boxes.length; i++) {
             const p = amzPriceOf(boxes[i], '.priceToPay, .apexPriceToPay, .a-price:not([data-a-strike])');
             if (p) return p;
         }
-        const inp = document.querySelector('#twister-plus-price-data-price');
+        const inp = doc.querySelector('#twister-plus-price-data-price');
         return inp ? parsePrice(inp.value) : null;
     };
-    const amzListPrice = (price) => {
-        const boxes = [].slice.call(document.querySelectorAll(AMZ_PRICE_BOX));
+    const amzListPrice = (price, doc) => {
+        const boxes = [].slice.call((doc || document).querySelectorAll(AMZ_PRICE_BOX));
         for (let i = 0; i < boxes.length; i++) {
             const p = amzPriceOf(boxes[i], '.basisPrice [data-a-strike="true"], .a-text-price[data-a-strike="true"]');
             if (p && (price == null || p.value > price)) return p.value;
@@ -4519,6 +4529,131 @@ async (opts) => {
         setTimeout(() => { try { form.submit(); } catch (e) { /* bỏ */ } }, 50);
     };
 
+    // ---- chế độ "cào tất cả màu" ----
+    const amzAllMode = () => !!opts.amazon_all;
+    const amzAllStore = () => {
+        try { return window.__scAmzAll || (window.__scAmzAll = {}); } catch (e) { return {}; }
+    };
+    const amzDims = (tw) => {
+        const lab = (d) => S(tw.labels[d] || d.replace(/_name$/, '').replace(/_/g, ' ')).trim();
+        const colorD = tw.dims.find((d) => /colou?r/i.test(d + ' ' + lab(d)));
+        const sizeD = tw.dims.find((d) => d !== colorD && /size/i.test(d + ' ' + lab(d)));
+        const otherD = tw.dims.find((d) => d !== colorD && d !== sizeD);
+        return { lab: lab, colorD: colorD, sizeD: sizeD, otherD: otherD };
+    };
+    const amzValOf = (tw, d) => {
+        const i = tw.selected[d];
+        const arr = tw.values[d] || [];
+        if (i != null && arr[i] != null) return S(arr[i]);
+        const disp = tw.display[tw.asin];
+        return disp ? S(disp[tw.dims.indexOf(d)]) : '';
+    };
+    // Tổ hợp có thật: dimensionToAsinMap "i_j" theo đúng thứ tự tw.dims
+    const amzCombos = (tw) => Object.keys(tw.toAsin).map((k) => {
+        const idx = k.split('_').map(Number);
+        const o = { asin: tw.toAsin[k] };
+        tw.dims.forEach((d, n) => { o[d] = S((tw.values[d] || [])[idx[n]]); });
+        return o;
+    });
+    // Swatch của inline twister: trạng thái còn/hết theo tổ hợp đang chọn của trang `doc`
+    const amzSwatchState = (d, doc) => {
+        doc = doc || document;
+        const st = {};
+        doc.querySelectorAll('#inline-twister-row-' + d + ' li[data-asin], #variation_' + d + ' li[data-defaultasin], #variation_' + d + ' li[data-asin]').forEach((li) => {
+            const asin = S(li.getAttribute('data-asin') || li.getAttribute('data-defaultasin'));
+            const cid = S(li.getAttribute('data-csa-c-content-id')) + ' ' + S(li.className);
+            const bad = /swatchUnavailable|Unavailable/i.test(cid) || li.getAttribute('data-initiallyunavailable') === 'true';
+            if (asin) st[asin] = !bad;
+        });
+        // dropdown kiểu cũ
+        doc.querySelectorAll('select[name="dropdown_selected_' + d + '"] option').forEach((o) => {
+            const v = S(o.getAttribute('value')).split(',').pop();
+            if (v && /^[A-Z0-9]{10}$/.test(v)) st[v] = !/Unavailable/i.test(S(o.className));
+        });
+        return st;
+    };
+    const amzOosOf = (doc) => {
+        const avEl = doc.querySelector('#availability');
+        const avail = avEl ? amzClean(S(avEl.innerText || avEl.textContent)) : '';
+        return /currently unavailable|out of stock|temporarily unavailable|not available/i.test(avail)
+            || !!doc.querySelector('#outOfStock');
+    };
+    // Size còn/hết của 1 màu đọc từ trang `doc` (trang của 1 ASIN thuộc màu đó)
+    const amzSizesOf = (tw, dm, color, variant, doc, oos) => {
+        const sizes = (tw.values[dm.sizeD] || []).map(S);
+        const st = amzSwatchState(dm.sizeD, doc);
+        const mine = amzCombos(tw).filter((c) => (!dm.colorD || c[dm.colorD] === color)
+            && (!dm.otherD || !variant || c[dm.otherD] === variant));
+        const ok = [];
+        sizes.forEach((s) => {
+            const c = mine.find((x) => x[dm.sizeD] === s);
+            if (c && (st[c.asin] !== undefined ? st[c.asin] : true)) ok.push(s);
+        });
+        const curT = amzTwisterOf(doc);
+        const curSize = curT ? amzValOf(curT, dm.sizeD) : '';
+        if (oos && ok.indexOf(curSize) >= 0) ok.splice(ok.indexOf(curSize), 1);
+        return { ok: ok, bad: sizes.filter((s) => ok.indexOf(s) < 0) };
+    };
+    // Tải trang /dp/<ASIN> của từng màu khác (cùng size + trục giữa với link). Nhớ trên window
+    // nên lần poll sau không tải lại; quá ngân sách thời gian thì để lần poll sau làm tiếp.
+    const amzFetchAllColors = async () => {
+        const tw = amzTwister();
+        if (!tw || !tw.dims.length) return;
+        const dm = amzDims(tw);
+        if (!dm.colorD) return;
+        const store = amzAllStore();
+        const key = S(tw.asin);
+        const st = store[key] = store[key] || { colors: {}, wall: '' };
+        if (st.wall) return;
+        const curColor = amzValOf(tw, dm.colorD);
+        const curSize = dm.sizeD ? amzValOf(tw, dm.sizeD) : '';
+        const curVar = dm.otherD ? amzValOf(tw, dm.otherD) : '';
+        const combos = amzCombos(tw);
+        const todo = [];
+        (tw.values[dm.colorD] || []).map(S).forEach((c) => {
+            if (c === curColor || st.colors[c]) return;
+            const mine = combos.filter((x) => x[dm.colorD] === c && (!dm.otherD || x[dm.otherD] === curVar));
+            const pickC = mine.find((x) => !dm.sizeD || x[dm.sizeD] === curSize) || mine[0]
+                || combos.find((x) => x[dm.colorD] === c);
+            if (pickC) todo.push({ color: c, asin: pickC.asin, variant: dm.otherD ? (pickC[dm.otherD] || '') : '' });
+        });
+        if (!todo.length) return;
+        const t0 = Date.now();
+        const BUDGET = 150000;
+        let i = 0;
+        const worker = async () => {
+            while (i < todo.length && !st.wall && Date.now() - t0 < BUDGET) {
+                const job = todo[i++];
+                let html = '';
+                try {
+                    const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+                    const timer = setTimeout(() => { if (ctl) ctl.abort(); }, 20000);
+                    const r = await fetch('/dp/' + job.asin + '?th=1&psc=1', { credentials: 'include', signal: ctl ? ctl.signal : undefined });
+                    clearTimeout(timer);
+                    html = r.ok ? await r.text() : '';
+                } catch (e) { html = ''; }
+                if (!html) continue;
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                if (doc.querySelector('form[action*="validateCaptcha"]')) {
+                    st.wall = job.color;
+                    break;
+                }
+                const oos = amzOosOf(doc);
+                const pr = amzPrice(doc);
+                const sz = dm.sizeD ? amzSizesOf(tw, dm, job.color, job.variant, doc, oos) : null;
+                st.colors[job.color] = {
+                    asin: job.asin, variant: job.variant, images: amzImages(doc),
+                    price: pr ? pr.value : null, list_price: amzListPrice(pr ? pr.value : null, doc),
+                    sizes_in_stock: sz ? sz.ok : [], sizes_out_of_stock: sz ? sz.bad : [], oos: oos,
+                };
+                await new Promise((res) => setTimeout(res, 250 + Math.random() * 400));
+            }
+        };
+        await Promise.all([worker(), worker(), worker()]);
+        log('amazon (tất cả màu): đã tải ' + Object.keys(st.colors).length + '/' + ((tw.values[dm.colorD] || []).length - 1)
+            + ' màu khác trong ' + Math.round((Date.now() - t0) / 1000) + 's' + (st.wall ? ', DỪNG vì captcha ở màu ' + st.wall : ''));
+    };
+
     const amzExtra = () => {
         if (_amzWall === 'continue') return null;
         if (_amzWall) {
@@ -4546,28 +4681,16 @@ async (opts) => {
             if (avail) log('amazon: không có variant, availability = ' + avail);
             return out;
         }
-        const lab = (d) => S(tw.labels[d] || d.replace(/_name$/, '').replace(/_/g, ' ')).trim();
-        const colorD = tw.dims.find((d) => /colou?r/i.test(d + ' ' + lab(d)));
-        const sizeD = tw.dims.find((d) => d !== colorD && /size/i.test(d + ' ' + lab(d)));
-        const otherD = tw.dims.find((d) => d !== colorD && d !== sizeD);
-        const valOf = (d) => {
-            const i = tw.selected[d];
-            const arr = tw.values[d] || [];
-            if (i != null && arr[i] != null) return S(arr[i]);
-            const disp = tw.display[tw.asin];
-            return disp ? S(disp[tw.dims.indexOf(d)]) : '';
-        };
-        // Tổ hợp có thật: dimensionToAsinMap "i_j" theo đúng thứ tự tw.dims
-        const combos = Object.keys(tw.toAsin).map((k) => {
-            const idx = k.split('_').map(Number);
-            const o = { asin: tw.toAsin[k] };
-            tw.dims.forEach((d, n) => { o[d] = S((tw.values[d] || [])[idx[n]]); });
-            return o;
-        });
+        const dm = amzDims(tw);
+        const lab = dm.lab, colorD = dm.colorD, sizeD = dm.sizeD, otherD = dm.otherD;
+        const valOf = (d) => amzValOf(tw, d);
+        const combos = amzCombos(tw);
+        const all = amzAllMode();
         const curColor = colorD ? valOf(colorD) : '';
         if (colorD) {
             out.color_label = lab(colorD);
-            out.colors = (tw.values[colorD] || []).map(S);
+            // 1 link đơn: chỉ màu của link (màu khác là mẫu khác, không lấy)
+            out.colors = all ? (tw.values[colorD] || []).map(S) : [curColor];
             out.current_color = curColor;
         }
         if (otherD) {
@@ -4575,25 +4698,9 @@ async (opts) => {
             out.current_variant = valOf(otherD);
             out.variants = (tw.values[otherD] || []).map((v) => lab(otherD) + ':' + v);
         }
-        // Swatch của inline twister: trạng thái còn/hết theo tổ hợp đang chọn
-        const swatchState = (d) => {
-            const st = {};
-            document.querySelectorAll('#inline-twister-row-' + d + ' li[data-asin], #variation_' + d + ' li[data-defaultasin], #variation_' + d + ' li[data-asin]').forEach((li) => {
-                const asin = S(li.getAttribute('data-asin') || li.getAttribute('data-defaultasin'));
-                const cid = S(li.getAttribute('data-csa-c-content-id')) + ' ' + S(li.className);
-                const bad = /swatchUnavailable|Unavailable/i.test(cid) || li.getAttribute('data-initiallyunavailable') === 'true';
-                if (asin) st[asin] = !bad;
-            });
-            // dropdown kiểu cũ
-            document.querySelectorAll('select[name="dropdown_selected_' + d + '"] option').forEach((o) => {
-                const v = S(o.getAttribute('value')).split(',').pop();
-                if (v && /^[A-Z0-9]{10}$/.test(v)) st[v] = !/Unavailable/i.test(S(o.className));
-            });
-            return st;
-        };
         if (sizeD) {
             const sizes = (tw.values[sizeD] || []).map(S);
-            const st = swatchState(sizeD);
+            const st = amzSwatchState(sizeD);
             const mine = combos.filter((c) => (!colorD || c[colorD] === curColor)
                 && (!otherD || c[otherD] === out.current_variant));
             const ok = [], bad = [];
@@ -4615,7 +4722,7 @@ async (opts) => {
             // Size CÓ BÁN theo từng màu (chưa biết còn/hết — muốn biết phải mở link màu đó)
             if (colorD) {
                 const offered = {};
-                (tw.values[colorD] || []).forEach((c) => {
+                (all ? (tw.values[colorD] || []) : [curColor]).forEach((c) => {
                     offered[c] = sizes.filter((s) => combos.some((x) => x[colorD] === c && x[sizeD] === s));
                 });
                 out.color_sizes_offered = offered;
@@ -4639,22 +4746,52 @@ async (opts) => {
                 const lp = amzPriceOf(slot, '[data-a-strike="true"]');
                 if (p) prices[name] = { price: p.value, list_price: lp && lp.value > p.value ? lp.value : null };
             });
-            out.color_codes = codes;
-            if (Object.keys(prices).length) out.color_prices = prices;
-            // Ảnh: màu đang xem = gallery đầy đủ; màu khác = 1 ảnh MAIN
-            const ci = amzColorImages();
             const cur = amzImages();
-            const all = cur.slice(), map = {};
+            const imgs = cur.slice(), map = {};
             cur.forEach((u) => { map[u] = curColor; });
-            Object.keys(ci.byColor).forEach((c) => {
-                if (c === curColor) return;
-                ci.byColor[c].forEach((u) => { if (all.indexOf(u) < 0) { all.push(u); map[u] = c; } });
-            });
-            out.all_images = all;
-            out.image_colors = map;
+            if (!all) {
+                // 1 link đơn: chỉ ASIN/giá/ảnh của màu đang xem
+                out.color_codes = { [curColor]: S(tw.asin) || codes[curColor] || '' };
+                if (prices[curColor]) out.color_prices = { [curColor]: prices[curColor] };
+                out.all_images = imgs;
+                out.image_colors = map;
+            } else {
+                // Tất cả màu: số liệu từ trang riêng của từng màu (prefetch); màu chưa tải được
+                // thì lùi về swatch (giá) + 1 ảnh MAIN (ImageBlockBTF)
+                const st = (amzAllStore()[S(tw.asin)] || { colors: {} });
+                const ci = amzColorImages();
+                const matrix = (out.stock_matrix || []).slice();
+                const miss = [];
+                (tw.values[colorD] || []).map(S).forEach((c) => {
+                    if (c === curColor) return;
+                    const f = st.colors[c];
+                    if (f) {
+                        codes[c] = f.asin;
+                        if (f.price != null) prices[c] = { price: f.price, list_price: f.list_price && f.list_price > f.price ? f.list_price : null };
+                        f.images.forEach((u) => { if (imgs.indexOf(u) < 0) { imgs.push(u); map[u] = c; } });
+                        if (sizeD) matrix.push({ color: c, variant: f.variant || '', sizes_in_stock: f.sizes_in_stock.slice(), sizes_out_of_stock: f.sizes_out_of_stock.slice() });
+                    } else {
+                        miss.push(c);
+                        (ci.byColor[c] || []).forEach((u) => { if (imgs.indexOf(u) < 0) { imgs.push(u); map[u] = c; } });
+                        if (sizeD && out.color_sizes_offered) {
+                            const off = out.color_sizes_offered[c] || [];
+                            matrix.push({ color: c, variant: '', sizes_in_stock: off.slice(),
+                                          sizes_out_of_stock: (tw.values[sizeD] || []).map(S).filter((s) => off.indexOf(s) < 0) });
+                        }
+                    }
+                });
+                if (miss.length) warnings.push('Amazon: chưa tải được trang riêng của ' + miss.length + ' màu ('
+                    + miss.slice(0, 5).join(', ') + (miss.length > 5 ? '...' : '') + ') — size/ảnh các màu đó chưa đủ'
+                    + (st.wall ? '; Amazon hiện captcha khi tải màu ' + st.wall : '') + '.');
+                if (sizeD) out.stock_matrix = matrix;
+                out.color_codes = codes;
+                if (Object.keys(prices).length) out.color_prices = prices;
+                out.all_images = imgs;
+                out.image_colors = map;
+            }
         }
         log('amazon: ' + tw.dims.join('/') + ', màu ' + (curColor || '-') + ', ' + combos.length
-            + ' ASIN, availability "' + avail + '"');
+            + ' ASIN, availability "' + avail + '", chế độ ' + (all ? 'TẤT CẢ màu' : '1 link đơn'));
         return out;
     };
 
@@ -5970,10 +6107,13 @@ async (opts) => {
 
         'amazon.com': {
             ready: '#productTitle',
-            // Mỗi màu (× size) là 1 ASIN, 1 link riêng; trang chỉ có đủ dữ liệu của ASIN
-            // đang xem (màu khác chỉ 1 ảnh, không tồn kho) -> KHÔNG tách màu lúc xuất.
-            identity: 'color',
-            prefetch: () => amzPrefetch(),
+            // Mỗi màu (× size) là 1 ASIN, 1 link riêng. Mặc định chỉ lấy màu của link -> KHÔNG
+            // tách màu; chế độ "cào tất cả màu" (opts.amazon_all) thì tách mỗi màu 1 dòng.
+            get identity() { return amzAllMode() ? 'color+variant' : 'color'; },
+            prefetch: async () => {
+                await amzPrefetch();
+                if (amzAllMode() && !_amzWall) await amzFetchAllColors();
+            },
             title: () => amzClean((document.querySelector('#productTitle') || {}).textContent),
             price: () => amzPrice(),
             description: () => amzDescText(),

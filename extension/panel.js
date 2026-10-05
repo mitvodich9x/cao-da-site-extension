@@ -247,6 +247,7 @@ function saveExportOpts() {
             hide_all_sizes: !!($('chkHideAllSizes') && $('chkHideAllSizes').checked),
             split_colors: splitColors(),
             page_wait: pageWait(),
+            amazon_all: !!($('chkAmazonAll') && $('chkAmazonAll').checked),
         } });
     } catch (e) { /* bỏ qua */ }
 }
@@ -258,6 +259,7 @@ function restoreExportOpts(opts) {
     if ($('chkHideAllSizes')) $('chkHideAllSizes').checked = !!opts.hide_all_sizes;
     if ($('chkSplitColors') && opts.split_colors != null) $('chkSplitColors').checked = !!opts.split_colors;
     if ($('inpPageWait') && opts.page_wait != null) $('inpPageWait').value = opts.page_wait;
+    if ($('chkAmazonAll')) $('chkAmazonAll').checked = !!opts.amazon_all;
 }
 
 // Ô "Chờ mỗi trang" (giây): background đọc sc_opts.page_wait mỗi lần mở 1 trang để cào
@@ -1368,7 +1370,7 @@ function wire() {
     });
 
     // ---- tuỳ chọn xuất (checklist eBay) ----
-    ['inpPercent', 'chkHideAllImages', 'chkHideAllSizes', 'chkSplitColors', 'inpPageWait'].forEach((id) => {
+    ['inpPercent', 'chkHideAllImages', 'chkHideAllSizes', 'chkSplitColors', 'inpPageWait', 'chkAmazonAll'].forEach((id) => {
         if ($(id)) $(id).addEventListener('change', saveExportOpts);
     });
     if ($('chkSplitColors')) $('chkSplitColors').addEventListener('change', renderAll);
