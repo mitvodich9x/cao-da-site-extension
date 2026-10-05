@@ -760,6 +760,10 @@ function splitByColor(recs) {
         // Link riêng của màu: mã màu của site nằm trong link gốc (Tommy Bahama /p/<style>-<màu>,
         // Eileen Fisher ?dwvar_..._color=<mã>) thì thay mã; Walmart thay item id cuối link.
         const colorLink = (color) => {
+            // Adapter khai sẵn link riêng của màu (Williams-Sonoma ?sku=, Free People ?color=,
+            // Personal Creations ?attr9=...) thì dùng luôn
+            const own = String(pick(r.color_links || {}, color) || '');
+            if (/^https?:/i.test(own)) return own;
             const code = String(pick(codes, color) || '');
             if (!code) return '';
             if (/^https?:/i.test(code)) return code;
@@ -790,7 +794,9 @@ function splitByColor(recs) {
                 rec.current_color = color;
                 rec.current_variant = variant;
                 const own = allImages.filter((u) => sameText(imgColors[u], color));
-                rec.images = own.length ? own : shared;
+                // Ảnh riêng của màu + ảnh chung của sản phẩm (không gắn màu nào — ảnh góc khác,
+                // ảnh dùng thử). Trước chỉ lấy ảnh riêng -> màu khác của Williams-Sonoma còn 1 ảnh.
+                rec.images = own.length ? own.concat(shared.filter((u) => own.indexOf(u) < 0)) : shared;
                 const cp = pick(prices, color);
                 if (cp && cp.price != null) { rec.price = cp.price; rec.list_price = cp.list_price; }
             }

@@ -505,6 +505,17 @@ async (opts) => {
     // Màu đang xem theo URL: trình duyệt trước, rồi tới link người dùng dán (site
     // redirect có thể làm rơi query).
     const currentColorFromUrl = () => colorParamOf(location.href) || colorParamOf(opts.url);
+    // Link riêng của 1 màu = link đang cào, đặt/thay 1 tham số (?color=066, ?sku=123, ?attr9=16610);
+    // bỏ các tham số `drop` (VD size của màu đang xem). Dùng cho color_links.
+    const linkWithParam = (name, value, drop) => {
+        try {
+            const u = new URL(S(opts.url) || location.href, location.href);
+            (drop || []).forEach((k) => u.searchParams.delete(k));
+            u.searchParams.set(name, S(value));
+            u.hash = '';
+            return u.toString();
+        } catch (e) { return ''; }
+    };
 
     // Ảnh rác cần loại: swatch màu, icon, logo, sprite, placeholder, ảnh 1px
     const BAD_IMG = /(swatch|sprite|placeholder|\/icon|logo|badge|spacer|transparent|blank\.gif)/i;
@@ -1700,28 +1711,50 @@ async (opts) => {
     // (đã kiểm: bản xl 2000px có thật cho cả prodimage lẫn altview).
     // Extension chạy ở isolated world không thấy biến của trang -> moi JSON từ chữ của
     // script inline rồi JSON.parse (như rcProps của Revolve).
+    // BẪY (2026-10-05): Vue hydrate xong thì XOÁ thẻ <script> __INITIAL_STATE__ khỏi DOM. Từ
+    // 1.7.3 extension chờ trang tải xong mới cào -> không còn thẻ để đọc (mất màu/size, bảng
+    // không tách màu). -> prefetch tải lại HTML gốc của chính trang (cùng origin) lấy chữ đó.
+    const wsStateFromText = (txt) => {
+        const m = /window\.__INITIAL_STATE__\s*=\s*\{/.exec(S(txt));
+        if (!m) return null;
+        const body = jsonObjectAt(txt, m.index + m[0].length - 1);
+        if (!body) return null;
+        try {
+            const j = JSON.parse(body);
+            return j && j.product && j.product.productDetails ? j : null;
+        } catch (e) { log('wsonoma: không parse được __INITIAL_STATE__ — ' + S(e.message)); }
+        return null;
+    };
     let _wsState;
     const wsState = () => {
-        if (_wsState !== undefined) return _wsState;
-        _wsState = null;
+        if (_wsState) return _wsState;
         try {
             const w = window.__INITIAL_STATE__;
             if (w && w.product && w.product.productDetails) _wsState = w;
         } catch (e) { /* isolated world của extension */ }
         const scripts = _wsState ? [] : document.querySelectorAll('script:not([src])');
         for (let i = 0; i < scripts.length && !_wsState; i++) {
-            const txt = scripts[i].textContent || '';
-            const m = /window\.__INITIAL_STATE__\s*=\s*\{/.exec(txt);
-            if (!m) continue;
-            const body = jsonObjectAt(txt, m.index + m[0].length - 1);
-            if (!body) continue;
-            try {
-                const j = JSON.parse(body);
-                if (j && j.product && j.product.productDetails) _wsState = j;
-            } catch (e) { log('wsonoma: không parse được __INITIAL_STATE__ — ' + S(e.message)); }
+            if (S(scripts[i].textContent).indexOf('__INITIAL_STATE__') >= 0) _wsState = wsStateFromText(scripts[i].textContent);
         }
-        if (_wsState) log('wsonoma: đọc __INITIAL_STATE__ OK');
-        return _wsState;
+        if (!_wsState) {
+            let raw = '';
+            try { raw = window.__scWsRaw || ''; } catch (e) { raw = ''; }
+            if (raw) _wsState = wsStateFromText(raw);
+            if (_wsState) log('wsonoma: đọc __INITIAL_STATE__ từ HTML gốc (thẻ script đã bị trang xoá)');
+        } else {
+            log('wsonoma: đọc __INITIAL_STATE__ OK');
+        }
+        return _wsState || null;
+    };
+    const wsPrefetch = async () => {
+        if (wsState()) return;
+        try {
+            if (window.__scWsRaw && window.__scWsRawUrl === location.href) return;
+            const r = await fetch(location.href, { credentials: 'include' });
+            const t = r.ok ? await r.text() : '';
+            if (t.indexOf('__INITIAL_STATE__') >= 0) { window.__scWsRaw = t; window.__scWsRawUrl = location.href; }
+            log('wsonoma: tải lại HTML gốc ' + (t ? t.length + ' ký tự' : 'lỗi HTTP ' + r.status));
+        } catch (e) { log('wsonoma: không tải lại được HTML gốc — ' + S(e.message || e)); }
     };
     const wsProduct = () => { const st = wsState(); return st ? st.product : null; };
     const wsDetails = () => { const p = wsProduct(); return (p && p.productDetails) || null; };
@@ -1907,8 +1940,11 @@ async (opts) => {
         const key = (m, axis) => (axis ? S(m[axis.name.toLowerCase()]) : '');
         const midOf = (m) => midAxes.map((a) => key(m, a)).filter(Boolean).join(' / ');
 
-        // Ma trận tồn kho: (màu × trục giữa) -> size còn / size hết
-        const sizes = sizeAxis ? sizeAxis.values.slice() : [];
+        // Ma trận tồn kho: (màu × trục giữa) -> size còn / size hết. Hàng KHÔNG có trục size
+        // (nồi, khay chỉ chọn màu) -> 1 size 'One Size' để mỗi màu vẫn có còn/hết riêng khi
+        // bảng tách mỗi màu 1 dòng (như Academy).
+        const sizes = sizeAxis ? sizeAxis.values.slice() : (colorAxis ? ['One Size'] : []);
+        const sizeOf = (m) => (sizeAxis ? key(m, sizeAxis) : 'One Size');
         const colors = colorAxis ? colorAxis.values.slice() : [];
         const midCombos = [];
         skus.forEach((s) => {
@@ -1926,7 +1962,7 @@ async (opts) => {
         skus.forEach((s) => {
             const m = attrsOf(s);
             const k = key(m, colorAxis) + '|' + midOf(m);
-            if (rows[k] && wsSkuInStock(s)) (okBy[k] = okBy[k] || {})[key(m, sizeAxis)] = 1;
+            if (rows[k] && wsSkuInStock(s)) (okBy[k] = okBy[k] || {})[sizeOf(m)] = 1;
         });
         order.forEach((k) => {
             const ok = okBy[k] || {};
@@ -1936,7 +1972,7 @@ async (opts) => {
         const curM = cur ? attrsOf(cur) : {};
         const curColor = key(curM, colorAxis);
         const curMid = midOf(curM);
-        const curSize = key(curM, sizeAxis);
+        const curSize = sizeAxis || colorAxis ? sizeOf(curM) : '';
         const curRow = rows[curColor + '|' + curMid] || null;
         let inStock = cur ? wsSkuInStock(cur) : null;
         if (cur && /NLA/.test(S(cur.inventory && cur.inventory.availability).toUpperCase())) {
@@ -1975,6 +2011,23 @@ async (opts) => {
         const regular = pr && pr.regularPrice != null ? Number(pr.regularPrice) : null;
         const variants = [];
         midAxes.forEach((a) => a.values.forEach((v) => variants.push(a.name + ':' + v)));
+        // Mã + giá từng màu = sku đầu (theo rank) của màu đó, ưu tiên sku còn hàng; màu đang
+        // xem = đúng sku đang xem. Panel thay mã này vào ?sku= -> link riêng của màu.
+        const colorCodes = {}, colorPrices = {};
+        const priceOfSku = (sk) => {
+            const p2 = sk && sk.price;
+            const sp = p2 && p2.sellingPrice != null ? Number(p2.sellingPrice) : null;
+            const rp = p2 && p2.regularPrice != null ? Number(p2.regularPrice) : null;
+            return sp != null ? { price: sp, list_price: rp != null && rp > sp ? rp : null } : null;
+        };
+        colors.forEach((c) => {
+            const mine = skus.filter((sk) => key(attrsOf(sk), colorAxis) === c);
+            const pick = (cur && c === curColor ? cur : null) || mine.filter(wsSkuInStock)[0] || mine[0];
+            if (!pick) return;
+            colorCodes[c] = S(pick.id);
+            const pp = priceOfSku(pick);
+            if (pp) colorPrices[c] = pp;
+        });
         log('wsonoma: sku đang xem = ' + (cur ? cur.id : '?') + ' (' + (curColor || 'không màu')
             + (curMid ? ' / ' + curMid : '') + (curSize ? ' / ' + curSize : '') + '), '
             + skus.length + ' sku, ' + colors.length + ' màu, ' + sizes.length + ' size, '
@@ -1995,6 +2048,14 @@ async (opts) => {
             variants: variants,
             stock_matrix: sizes.length ? order.map((k) => rows[k]) : [],
             in_stock: inStock,
+            color_codes: colorCodes,
+            color_prices: colorPrices,
+            // Link riêng từng màu: 1 link chung, ?sku=<mã> chọn sẵn đúng variant
+            color_links: (() => {
+                const m = {};
+                Object.keys(colorCodes).forEach((c) => { m[c] = linkWithParam('sku', colorCodes[c]); });
+                return m;
+            })(),
             details: wsTab(/dimensions|more info|details|specification/i),
             fit_care: wsTab(/care/i),
         };
@@ -2192,6 +2253,19 @@ async (opts) => {
         return lines.join('\n');
     };
 
+    const fpCodes = (items) => {
+        const m = {};
+        items.forEach((it) => { const n = decodeHtml(it.displayName); if (n && it.code) m[n] = S(it.code).trim(); });
+        return m;
+    };
+    const fpLinks = (items) => {
+        const m = {};
+        items.forEach((it) => {
+            const n = decodeHtml(it.displayName);
+            if (n && it.code) m[n] = linkWithParam('color', S(it.code).trim(), ['size', 'type']);
+        });
+        return m;
+    };
     const fpExtra = () => {
         const si = fpSkuInfo();
         const p = fpProduct();
@@ -2262,6 +2336,9 @@ async (opts) => {
             list_price: listPrice,
             all_images: allImages.length ? allImages : null,
             image_colors: imgColors,
+            // Mã màu (?color=011) + link riêng từng màu -> bảng tách mỗi màu 1 dòng
+            color_codes: fpCodes(items),
+            color_links: fpLinks(items),
             size_fit: fpSizeFit(),
             fit_care: fpFitCare(),
             // Nút "Size Guide" ngay dưới bảng size — tool bấm rồi chụp lại bảng
@@ -3489,6 +3566,12 @@ async (opts) => {
             all_images: allImgs,
             in_stock: !pageOos && (anyIn || !designs.length),
             color_codes: codes,
+            color_links: (() => {
+                const m = {};
+                const key = cs ? S(cs.key || ('attr' + pcAttrId(cs))) : '';
+                if (key) Object.keys(codes).forEach((n) => { m[n] = linkWithParam(key, codes[n]); });
+                return m;
+            })(),
             color_prices: prices,
             current_variant: curSize,
         };
@@ -5138,7 +5221,9 @@ async (opts) => {
         // Mỗi màu 1 link riêng (?color=011) nên định danh chỉ cần màu; size dùng chung link.
         'freepeople.com': {
             ready: 'script#urbnInitialPiniaState',
-            identity: 'color',
+            // 1 link chung mọi màu (?color= chỉ chọn sẵn), state có đủ ảnh + size từng màu
+            // -> tách mỗi màu 1 dòng (khách 2026-10-05: áp dụng tách màu cho mọi site)
+            identity: 'color+variant',
             title: () => {
                 const p = fpProduct();
                 if (p && p.displayName) return decodeHtml(p.displayName);
@@ -5217,6 +5302,7 @@ async (opts) => {
         'williams-sonoma.com': {
             ready: 'h1',
             identity: 'color+variant',
+            prefetch: () => wsPrefetch(),
             title: () => {
                 const d = wsDetails();
                 if (d && d.title) return decodeHtml(d.title);
@@ -6000,7 +6086,9 @@ async (opts) => {
 
         'personalcreations.com': {
             ready: '#price-container, .product-thumbnails',
-            identity: 'color',                 // ?attr9=<design> trên URL chọn design
+            // 1 link chung mọi design (?attr9=<design> chỉ chọn sẵn), product_designs có đủ ảnh +
+            // giá + hết hàng từng design -> tách mỗi design 1 dòng (khách 2026-10-05)
+            identity: 'color+variant',
             title: () => {
                 const p = ldProduct();
                 return p ? decodeHtml(p.name) : selText('h1, .product-name');
@@ -6248,6 +6336,7 @@ async (opts) => {
         color_codes: {},
         color_prices: {},
         color_titles: {},        // {màu: tiêu đề riêng của màu} — site mỗi màu 1 tên (MacKenzie-Childs)
+        color_links: {},         // {màu: link riêng của màu} — bảng tách màu dùng làm link của dòng
         details: '',
         fit_care: '',
         // Size & Fit (số đo người mẫu + số đo sản phẩm) và link bảng Size Guide
