@@ -785,6 +785,9 @@ function splitByColor(recs) {
             if (isCur && !curDone) {
                 curDone = true;
                 rec.current_variant = variant || r.current_variant || '';
+                // Màu của link cũng theo gallery site khai (ảnh riêng của màu lên trước)
+                const givenCur = list(pick(r.color_images || {}, color));
+                if (givenCur.length) rec.images = givenCur;
             } else {
                 // Khoá bản nháp / định danh riêng cho từng màu: link riêng của màu nếu có,
                 // không thì link gốc + #màu
@@ -793,10 +796,12 @@ function splitByColor(recs) {
                 rec.url = ownLink || (r.url + '#' + encodeURIComponent(color + (variant ? ' | ' + variant : '')));
                 rec.current_color = color;
                 rec.current_variant = variant;
-                const own = allImages.filter((u) => sameText(imgColors[u], color));
-                // Ảnh riêng của màu + ảnh chung của sản phẩm (không gắn màu nào — ảnh góc khác,
-                // ảnh dùng thử). Trước chỉ lấy ảnh riêng -> màu khác của Williams-Sonoma còn 1 ảnh.
-                rec.images = own.length ? own.concat(shared.filter((u) => own.indexOf(u) < 0)) : shared;
+                // Site khai sẵn gallery từng màu (color_images) thì dùng nguyên; không thì ảnh
+                // gắn đúng màu này. KHÔNG ghép "ảnh không gắn màu" vào mọi màu: ở Walmart đó là ảnh
+                // của vài màu khác -> mọi dòng con giống nhau (lỗi 1.7.6, sửa 1.7.7).
+                const given = list(pick(r.color_images || {}, color));
+                const own = given.length ? given : allImages.filter((u) => sameText(imgColors[u], color));
+                rec.images = own.length ? own : shared;
                 const cp = pick(prices, color);
                 if (cp && cp.price != null) { rec.price = cp.price; rec.list_price = cp.list_price; }
             }
@@ -818,7 +823,8 @@ function splitByColor(recs) {
             if (ownTitle) rec.title = ownTitle;
             rec.title_fixed = fixedTitle(r.brand, rec.title, color);
             // Đã tách thì cột "Ảnh của toàn bộ variant" chỉ còn ảnh của chính màu này
-            const ownAll = allImages.filter((u) => sameText(imgColors[u], color));
+            const givenAll = list(pick(r.color_images || {}, color));
+            const ownAll = givenAll.length ? givenAll : allImages.filter((u) => sameText(imgColors[u], color));
             rec.all_images = ownAll.length ? ownAll : list(rec.images);
             rec.image_count = list(rec.images).length;
             out.push(rec);

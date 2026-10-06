@@ -130,6 +130,14 @@ function pickExtra(raw) {
         const n = Number(raw[f]);
         if (raw[f] != null && raw[f] !== '' && isFinite(n)) out[f] = n;
     });
+    // {màu: [ảnh]} — gallery đúng của từng màu (Walmart, Williams-Sonoma)
+    out.color_images = {};
+    if (raw.color_images && typeof raw.color_images === 'object' && !Array.isArray(raw.color_images)) {
+        Object.keys(raw.color_images).forEach((k) => {
+            const l = Array.isArray(raw.color_images[k]) ? raw.color_images[k].filter((x) => x) : [];
+            if (k && l.length) out.color_images[String(k)] = l.map(String);
+        });
+    }
     // {màu: {price, list_price}} — giá riêng từng màu (site 1 link chung mọi màu)
     if (raw.color_prices && typeof raw.color_prices === 'object') {
         Object.keys(raw.color_prices).forEach((k) => {

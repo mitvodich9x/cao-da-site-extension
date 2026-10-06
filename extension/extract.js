@@ -2005,6 +2005,15 @@ async (opts) => {
             });
         });
         wsSharedImages().forEach((u) => { if (all.indexOf(u) < 0) all.push(u); });
+        // Gallery từng màu: ảnh sku của màu đó + ảnh chung THẬT của sản phẩm (góc khác, ảnh dùng thử)
+        const colorImages = {};
+        colors.forEach((c) => {
+            const l = [];
+            skus.filter((sk) => key(attrsOf(sk), colorAxis) === c)
+                .forEach((sk) => wsSkuImages(sk).forEach((u) => { if (l.indexOf(u) < 0) l.push(u); }));
+            wsSharedImages().forEach((u) => { if (l.indexOf(u) < 0) l.push(u); });
+            if (l.length) colorImages[c] = l;
+        });
 
         const pr = cur && cur.price;
         const selling = pr && pr.sellingPrice != null ? Number(pr.sellingPrice) : null;
@@ -2039,6 +2048,7 @@ async (opts) => {
             list_price: regular != null && selling != null && regular > selling ? regular : null,
             all_images: all.length ? all : null,
             image_colors: imgColors,
+            color_images: colorImages,
             color_label: colorAxis ? colorAxis.name : '',
             size_label: sizeAxis ? sizeAxis.name : '',
             colors: colors,
@@ -4036,6 +4046,17 @@ async (opts) => {
         });
         const imageColors = {};
         Object.keys(owner).forEach((u) => { if (owner[u]) imageColors[u] = owner[u]; });
+        // Gallery từng màu = đúng variantCriteria[màu].images (cả ảnh người bán gắn cho nhiều màu
+        // như ảnh bìa / bảng size). KHÔNG ghép "ảnh không gắn màu" vào mọi màu: ở Walmart đó là ảnh
+        // của vài màu khác (khách 2026-10-06: dòng con giống hệt nhau 7/10 ảnh).
+        // Thứ tự: ảnh CHỈ màu này có lên trước, ảnh dùng chung (ảnh bìa listing = mẫu khác + dải
+        // các màu, bảng size) xuống sau -> ảnh chính của dòng con là đúng sản phẩm màu đó.
+        const colorImages = {};
+        colors.forEach((c) => {
+            const l = wmColorImages(p, c);
+            const mine = l.filter((u) => owner[u] === c);
+            if (l.length) colorImages[c] = mine.concat(l.filter((u) => mine.indexOf(u) < 0));
+        });
         // Ảnh bảng size của người bán: productImages tag "graphics-sizeguide"
         const map = p.imageMap || {};
         const guide = (idml.productImages || []).filter((x) => /size/i.test(S(x.tag)))
@@ -4057,6 +4078,7 @@ async (opts) => {
             list_price: pr.list_price,
             all_images: all.length ? all : null,
             image_colors: imageColors,
+            color_images: colorImages,
             fit_guide_images: guide,
             // Trường MỚI (chờ tích hợp vào rec)
             color_codes: colorCodes,
@@ -6337,6 +6359,8 @@ async (opts) => {
         color_prices: {},
         color_titles: {},        // {màu: tiêu đề riêng của màu} — site mỗi màu 1 tên (MacKenzie-Childs)
         color_links: {},         // {màu: link riêng của màu} — bảng tách màu dùng làm link của dòng
+        color_images: {},        // {màu: [ảnh]} — gallery ĐÚNG của từng màu do site khai; bảng tách màu
+                                 // dùng nguyên danh sách này (không đoán từ image_colors)
         details: '',
         fit_care: '',
         // Size & Fit (số đo người mẫu + số đo sản phẩm) và link bảng Size Guide
