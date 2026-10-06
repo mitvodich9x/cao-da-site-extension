@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Cào đa site — Walmart Scanner Pro",
-  "version": "1.7.7",
+  "version": "1.7.8",
   "description": "Dán danh sách link sản phẩm (Staples, Williams-Sonoma, Victoria's Secret, Revolve, Duluth Trading, Danner, Vionic, Bando, OGL Move, BestBuy...) → cào tiêu đề/giá/mô tả/toàn bộ ảnh + size/màu/còn-hết hàng → copy TSV hoặc tải CSV. Tab Cào link: tick chọn sản phẩm ngay trên trang danh mục để gom link theo nhà. Không cần cài Walmart Scanner Tool.",
   "permissions": [
     "scripting",

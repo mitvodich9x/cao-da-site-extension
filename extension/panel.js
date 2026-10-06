@@ -720,11 +720,14 @@ const COL_IMAGE_COLOR = 'Tên màu';
 const COL_ALL_SIZES = 'Size của tất cả variant';
 const COL_CDN = 'Ảnh đã convert';
 const COL_DESC_HTML = 'Mô tả HTML';
+// Toàn bộ ảnh của sản phẩm (dòng con) trong 1 ô: "Link A | Link B | ... | Link N" — ảnh đã
+// convert (CDN) thì lấy link CDN, chưa convert thì link gốc. Khách 2026-10-07.
+const COL_IMAGES_JOINED = 'Link ảnh gộp';
 const EXPORT_COLUMNS = ['Link', 'Tiêu đề gốc', 'Tiêu đề đã sửa', 'Mô tả', 'Giá gốc', 'Giá hiện tại',
     'Màu hiện tại', 'Màu tổng', COL_CUR_IMAGE, 'Ảnh size chart', COL_IMAGE_COLOR, COL_ALL_IMAGES,
     'Size hiện tại còn', 'Chi tiết size', COL_ALL_SIZES, 'Cảnh báo hết size', ' ', '% giá đặt',
     'Giá ứng với % giá đặt', 'Định danh variant gốc', 'SKU các acc',
-    'Trạng thái', 'Ghi chú', COL_CDN, COL_DESC_HTML];
+    'Trạng thái', 'Ghi chú', COL_CDN, COL_DESC_HTML, COL_IMAGES_JOINED];
 
 // 2 ô tích ẩn cột: ẩn cột thì bỏ luôn các hàng chỉ sinh ra để chứa cột đó
 function hideAllImages() { const el = $('chkHideAllImages'); return !!(el && el.checked); }
@@ -893,6 +896,8 @@ function buildRows(only) {
         base['Ghi chú'] = cleanText(r.note).slice(0, 500);
         // Mô tả gốc dạng HTML (đủ mọi phần, chỉ bỏ liên hệ); Excel giới hạn 32767 ký tự / ô
         base[COL_DESC_HTML] = String(r.description_html || '').trim().slice(0, 32000);
+        base[COL_IMAGES_JOINED] = pairs.map((p) => p[1] || p[0]).filter(Boolean)
+            .filter((u, i, a) => a.indexOf(u) === i).join(' | ');
 
         const nRows = Math.max(pairs.length, allImages.length, stockLines.length, 1);
         for (let i = 0; i < nRows; i++) {

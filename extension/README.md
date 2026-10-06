@@ -156,22 +156,27 @@ lại link cũ"*). Muốn ép convert lại thì xoá khoá `sc_cdn_map` trong s
 ### Bảng xuất ra: bố cục checklist eBay
 
 Nút **📄 Copy bảng đầy đủ (Excel)** (hoặc **⬇️ Tải CSV**) xuất đúng 21 cột của file
-"Check list ebay - Tổ chức database cào về" + 4 cột đuôi (`panel.js buildRows`, mirror
+"Check list ebay - Tổ chức database cào về" + 5 cột đuôi (`panel.js buildRows`, mirror
 `exporter.py` của tool desktop — 2 bên ra bảng giống hệt nhau):
 
 `Link · Tiêu đề gốc · Tiêu đề đã sửa · Mô tả · Giá gốc · Giá hiện tại · Màu hiện tại ·
 Màu tổng · Ảnh của variant đang lấy · Ảnh size chart · Tên màu · Ảnh của toàn bộ variant ·
 Size hiện tại còn · Chi tiết size · Size của tất cả variant · Cảnh báo hết size · (trống) ·
 % giá đặt · Giá ứng với % giá đặt · Định danh variant gốc · SKU các acc` + `Trạng thái ·
-Ghi chú · Ảnh đã convert · Mô tả HTML`
+Ghi chú · Ảnh đã convert · Mô tả HTML · Link ảnh gộp`
+
+**Link ảnh gộp** (cột cuối): toàn bộ ảnh của sản phẩm (mỗi dòng con khi tách màu) trong 1 ô,
+dạng `Link A | Link B | ... | Link N`, theo đúng thứ tự cột "Ảnh của variant đang lấy". Ảnh đã
+convert lên CDN thì lấy link CDN thay cho link gốc. Chỉ điền ở hàng đầu của mỗi sản phẩm.
 
 **Mô tả HTML** (cột đuôi cuối): mô tả gốc của site dạng HTML — lấy **đủ mọi phần mô tả**
 (VD Danner: Key Details · Description · Specifications · Features; Staples: Details +
 bảng Specifications; Hernest: Description · Material · Specification; Talbots: Details ·
 Features · Fit and Material; Revolve: Description · Size & Fit · About The Brand; W-S:
 Summary · Dimensions & More Info · Use & Care; VS: HTML trong JSON-LD). Chỉ giữ thẻ định
-dạng (p, ul/li, b/strong, h3, bảng...), bỏ class/style/ảnh/nút/link, và **chỉ xoá phần
-liên hệ** (email · SĐT · địa chỉ · website) — không lọc bảo hành/ship như cột Mô tả chữ.
+dạng (p, ul/li, b/strong, h3, bảng...), bỏ class/style/ảnh/nút/link, và lọc **giống cột Mô
+tả chữ**: xoá liên hệ (email · SĐT · địa chỉ · website), bảo hành, ship, đổi trả, thông tin
+doanh nghiệp (từ 1.6.3).
 Tab chính sách cửa hàng (Shipping + Returns, Price Match, Warranty & Returns) không lấy.
 Site chưa khai `descriptionSections` trong extract.js thì HTML dựng từ bản chữ.
 
