@@ -3400,6 +3400,98 @@ async (opts) => {
         };
     };
 
+    // ================= OXO =================
+    // ============================================================
+    // OXO (Magento 2 + giao diện Hyvä/Alpine) — kiểm 2026-10-07 (IP US, GoLogin US01)
+    // ============================================================
+    // Mỗi màu là 1 SẢN PHẨM, 1 link riêng (conical-burr-coffee-grinder.html / ...-storm-blue.html)
+    // -> không có trục màu trong trang, mỗi link 1 dòng.
+    //   · JSON-LD Product: name, sku, brand "OXO", offers{price, availability}
+    //   · ảnh: script `const galleryConfig_<id> = { images: [{thumb, img, full, type, ...}] }`;
+    //     bỏ đoạn "/cache/<hash>" khỏi link = ảnh gốc 1600px (full của trang chỉ 1000px)
+    //   · mô tả (khách: "gồm Product details và specifications"):
+    //       #description-content     tab "Product Details": đoạn giới thiệu + "Features" (ul)
+    //       #product.attributes-content  tab "Specifications": bảng SKU / Weight / Brand / Dimensions
+    // BẪY 1: Cloudflare — fetch lại HTML trang trả 403, chỉ đọc DOM đang có.
+    // BẪY 2: mỗi dòng Features DÍNH tiêu đề vào nội dung ("The Right Grind Every TimeChoose from 15
+    //   settings") -> tách thành "<strong>The Right Grind Every Time:</strong> Choose from ...".
+    // BẪY 3: tab Specifications ẩn (class hidden) và cột "Brand" là dòng sản phẩm (Brew), hãng = OXO.
+    const oxArrayAfter = (txt, key) => {
+        const i = S(txt).indexOf(key);
+        if (i < 0) return null;
+        const b = txt.indexOf('[', i + key.length);
+        if (b < 0) return null;
+        let depth = 0, inStr = false, esc = false;
+        for (let j = b; j < txt.length; j++) {
+            const c = txt[j];
+            if (inStr) { if (esc) esc = false; else if (c === '\\') esc = true; else if (c === '"') inStr = false; continue; }
+            if (c === '"') inStr = true;
+            else if (c === '[' || c === '{') depth++;
+            else if ((c === ']' || c === '}') && --depth === 0) {
+                try { return JSON.parse(txt.slice(b, j + 1)); } catch (e) { return null; }
+            }
+        }
+        return null;
+    };
+    const oxBig = (u) => S(u).replace(/\/media\/catalog\/product\/cache\/[0-9a-f]+\//, '/media/catalog/product/');
+    const oxImages = () => {
+        const sc = [].slice.call(document.scripts).find((s) => /const galleryConfig_\d+\s*=/.test(S(s.textContent)));
+        const arr = sc ? oxArrayAfter(S(sc.textContent), 'images:') : null;
+        const out = [];
+        (arr || []).forEach((x) => {
+            if (!x || (x.type && x.type !== 'image')) return;
+            const u = abs(oxBig(x.full || x.img || x.thumb));
+            if (u && out.indexOf(u) < 0) out.push(u);
+        });
+        return out;
+    };
+    const oxPrice = () => {
+        const box = document.querySelector('.product-info-main');
+        const el = box && box.querySelector('[data-price-type="finalPrice"]');
+        const amt = el && Number(el.getAttribute('data-price-amount'));
+        if (amt && isFinite(amt)) return { value: amt, currency: 'USD' };
+        const p = el ? parsePrice(el.textContent) : null;
+        return p || ldPrice();
+    };
+    const OX_SMALL = /^(a|an|and|or|of|the|to|for|with|in|on|at|by|&)$/i;
+    // "The Right Grind Every TimeChoose from ..." -> ["The Right Grind Every Time", "Choose from ..."]
+    const oxSplitFeature = (t) => {
+        t = S(t).replace(/\s+/g, ' ').trim();
+        const m = /[a-z\u2122)]([A-Z][a-z])/.exec(t);
+        if (!m) return null;
+        const head = t.slice(0, m.index + 1).trim();
+        const words = head.split(' ');
+        if (words.length > 8 || !words.every((w) => /^[A-Z0-9]/.test(w) || OX_SMALL.test(w))) return null;
+        return [head, t.slice(m.index + 1).trim()];
+    };
+    const oxSection = (id, fixFeatures) => {
+        const el = document.getElementById(id);
+        if (!el) return null;
+        const c = el.cloneNode(true);
+        [].slice.call(c.querySelectorAll('script, style, button, img, svg')).forEach((x) => x.remove());
+        // Nút tải sách hướng dẫn (a.a-btn-tertiary -> PDF) không phải mô tả
+        [].slice.call(c.querySelectorAll('a')).forEach((x) => {
+            if (/\.pdf(\?|$)/i.test(S(x.getAttribute('href'))) || /a-btn|btn-/.test(S(x.className))
+                || /^(instruction manual|download|user guide)$/i.test(S(x.textContent).trim())) x.remove();
+        });
+        if (fixFeatures) {
+            [].slice.call(c.querySelectorAll('li')).forEach((li) => {
+                if (li.children.length) return;          // đã có thẻ (strong...) thì để nguyên
+                const sp = oxSplitFeature(li.textContent);
+                if (sp) li.innerHTML = '<strong>' + escHtml(sp[0]) + ':</strong> ' + escHtml(sp[1]);
+            });
+        }
+        return S(c.textContent).replace(/\s+/g, '') ? c : null;
+    };
+    const oxDescSections = () => {
+        const out = [];
+        const det = oxSection('description-content', true);
+        if (det) out.push({ title: 'Product Details', kind: 'description', el: det });
+        const spec = oxSection('product.attributes-content', false);
+        if (spec) out.push({ title: 'Specifications', kind: 'details', el: spec });
+        return out;
+    };
+
     // ================= PERSONAL CREATIONS =================
     // ============================================================
     // PERSONAL CREATIONS (PlanetArt, PHP + jQuery) — kiểm chứng 2026-09-24
@@ -6104,6 +6196,27 @@ async (opts) => {
                 return list.length ? list : ldImages().map((u) => S(u).split('?')[0] + '?format=jpg&width=2000');
             },
             extra: () => mcExtra(),
+        },
+
+        // --- OXO (Magento Hyvä) — xem khối OXO ở trên. Mỗi màu 1 link riêng. ---
+        'oxo.com': {
+            ready: '#description-content, .product-info-main',
+            identity: 'color',
+            brand: 'OXO',
+            title: () => {
+                const p = ldProduct();
+                return p && p.name ? decodeHtml(p.name) : selText('.product-info-main h1, h1');
+            },
+            price: () => oxPrice(),
+            description: () => {
+                const el = oxSection('description-content', true);
+                return el ? htmlToText(el.innerHTML) : ldDesc();
+            },
+            descriptionSections: () => oxDescSections(),
+            images: () => {
+                const list = oxImages();
+                return list.length ? list : ldImages().map(oxBig);
+            },
         },
 
         'personalcreations.com': {
