@@ -185,6 +185,25 @@ Invoke-Git add $infoFile
 Invoke-Git commit -q -m "release: $tag"
 Invoke-Git push -q origin HEAD:main
 
+# Bản extension <= 1.7.0 (thời còn nằm trong walmart-scanner-tool) kiểm tra cập nhật ở
+# walmart-scanner-releases/extension.json -> ghi cùng nội dung sang đó, máy đang dùng bản cũ
+# bấm "Kiểm tra cập nhật" vẫn thấy bản mới (gói zip cùng cấu trúc). Lỗi ở bước này chỉ cảnh báo.
+Write-Step "Updating legacy extension.json (walmart-scanner-releases)"
+try {
+    $legacyUri = "https://api.github.com/repos/mitvodich9x/walmart-scanner-releases/contents/extension.json"
+    $legacy = Invoke-GitHubJson -Method "Get" -Uri $legacyUri -Token $token
+    $null = Invoke-GitHubJson -Method "Put" -Uri $legacyUri -Token $token -Body @{
+        message = "Cao da site extension $version (tro ve repo cao-da-site-extension)"
+        content = [Convert]::ToBase64String([System.Text.UTF8Encoding]::new($false).GetBytes($json))
+        sha     = $legacy.sha
+        branch  = "main"
+    }
+    Write-Host "legacy extension.json -> $version"
+}
+catch {
+    Write-Warning "Could not update legacy extension.json: $($_.Exception.Message)"
+}
+
 Write-Step "Release done"
 Write-Host "Extension $version -> $($uploaded.browser_download_url)"
 Write-Host "Latest link: https://github.com/$Repo/releases/latest/download/$zipName"
