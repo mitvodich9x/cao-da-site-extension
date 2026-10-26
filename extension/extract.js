@@ -3492,6 +3492,845 @@ async (opts) => {
         return out;
     };
 
+    // ================= ANODYNE =================
+    // ============================================================
+    // ANODYNE (NetSuite SuiteCommerce) — kiểm 2026-10-26
+    // ============================================================
+    // Link /<slug> (No.-41-Sport-Tempo), 1 trang chung mọi màu × độ rộng × size.
+    // Nguồn: API SuiteCommerce cùng origin
+    //   GET /api/items?url=<slug>&fieldset=details&country=US&currency=USD&language=en
+    //   -> items[0] {storedisplayname2, onlinecustomerprice_detail.onlinecustomerprice,
+    //      storedetaileddescription (HTML), itemimages_detail{<màu>: {urls:[{url}]}},
+    //      itemoptions_detail.fields[{internalid custcolN, label, values}],
+    //      matrixchilditems_detail[{custitemN: giá trị, isinstock, pricelevel2}]}
+    // BẪY 1: tuỳ chọn khai custcolN nhưng con matrix ghi custitemN (custcol6 Color -> custitem6).
+    // BẪY 2: link ảnh có dấu cách ("SSP Applications/NetSuite Inc. - SCS/...") -> encodeURI.
+    // Width (Medium/Wide/ExtraWide) = trục giữa (variant), Womens/Mens Sizes = size.
+    const anStore = () => {
+        try { return window.__scAnItem || (window.__scAnItem = {}); } catch (e) { return {}; }
+    };
+    const anSlug = () => decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, ''));
+    const anItem = () => anStore()[anSlug()] || null;
+    const anPrefetch = async () => {
+        const slug = anSlug();
+        if (!slug || anStore()[slug]) return;
+        const r = await fetch('/api/items?url=' + encodeURIComponent(slug)
+            + '&fieldset=details&country=US&currency=USD&language=en', { credentials: 'include' });
+        const j = r.ok ? await r.json() : null;
+        const it = j && j.items && j.items[0];
+        if (it) anStore()[slug] = it;
+        log('anodyne: /api/items ' + (it ? 'ok, ' + (it.matrixchilditems_detail || []).length + ' variant' : 'HTTP ' + r.status));
+    };
+    // Trục chọn: {label, key con matrix, giá trị}
+    const anAxis = (re) => {
+        const it = anItem();
+        const f = ((it && it.itemoptions_detail && it.itemoptions_detail.fields) || [])
+            .filter((x) => re.test(S(x.label)) && /^custcol\d+$/.test(S(x.internalid)))[0];
+        if (!f) return null;
+        return { label: S(f.label).trim(), key: S(f.internalid).replace('custcol', 'custitem'),
+                 // values[0] = "- Select -" (internalid rỗng) -> bỏ
+                 values: (f.values || []).filter((v) => S(v.internalid))
+                     .map((v) => S(v.label).trim()).filter((v) => v && !/^-.*-$/.test(v)) };
+    };
+    const anImgUrl = (u) => abs(encodeURI(decodeURI(S(u))));
+    const anColorImages = (color) => {
+        const it = anItem();
+        const m = (it && it.itemimages_detail) || {};
+        const k = Object.keys(m).filter((x) => S(x).toLowerCase() === S(color).toLowerCase())[0];
+        const pick = k ? m[k] : (Object.keys(m).length === 1 ? m[Object.keys(m)[0]] : null);
+        const urls = (pick && pick.urls) || [];
+        return urls.map((x) => anImgUrl(x.url)).filter(Boolean);
+    };
+    const anCurColor = () => {
+        const ca = anAxis(/^colou?r$/i);
+        if (!ca) return '';
+        const sel = document.querySelector('.product-views-option-color-picker-input:checked, [data-cart-option-id="custcol6"] .active');
+        const v = sel ? S(sel.value || sel.getAttribute('data-label') || sel.textContent).trim() : '';
+        return ca.values.indexOf(v) >= 0 ? v : (ca.values[0] || '');
+    };
+    const anExtra = () => {
+        const it = anItem();
+        if (!it) return null;
+        const ca = anAxis(/^colou?r$/i);
+        const wa = anAxis(/width/i);
+        const sa = anAxis(/size/i);
+        const kids = it.matrixchilditems_detail || [];
+        const colors = ca ? ca.values : [];
+        const widths = wa ? wa.values : [];
+        const cur = anCurColor();
+        const sizesOf = (c, w) => {
+            const ins = [], outs = [];
+            (sa ? sa.values : []).forEach((s) => {
+                const list = kids.filter((k) => (!ca || k[ca.key] === c) && (!wa || k[wa.key] === w) && k[sa.key] === s);
+                if (!list.length) return;
+                (list.some((k) => k.isinstock || k.isbackorderable) ? ins : outs).push(s);
+            });
+            return { ins, outs };
+        };
+        const matrix = [];
+        (colors.length ? colors : ['']).forEach((c) => (widths.length ? widths : ['']).forEach((w) => {
+            const z = sizesOf(c, w);
+            if (z.ins.length || z.outs.length) matrix.push({ color: c, variant: w, sizes_in_stock: z.ins, sizes_out_of_stock: z.outs });
+        }));
+        const curRows = matrix.filter((m) => m.color === cur);
+        const sizes = [], inStock = [];
+        curRows.forEach((m) => {
+            m.sizes_in_stock.forEach((s) => { if (inStock.indexOf(s) < 0) inStock.push(s); });
+            m.sizes_in_stock.concat(m.sizes_out_of_stock).forEach((s) => { if (sizes.indexOf(s) < 0) sizes.push(s); });
+        });
+        const allImages = [], imgColors = {};
+        [cur].concat(colors.filter((c) => c !== cur)).forEach((c) => anColorImages(c).forEach((u) => {
+            if (allImages.indexOf(u) < 0) { allImages.push(u); if (c) imgColors[u] = c; }
+        }));
+        log('anodyne: ' + colors.length + ' màu × ' + widths.length + ' độ rộng, ' + sizes.length + ' size màu ' + cur);
+        return {
+            current_color: cur,
+            color_label: 'Color',
+            colors: colors,
+            variant_label: wa ? 'Width' : '',
+            current_variant: '',
+            size_label: sa ? sa.label : '',
+            sizes: sizes,
+            sizes_in_stock: inStock,
+            sizes_out_of_stock: sizes.filter((s) => inStock.indexOf(s) < 0),
+            stock_matrix: matrix,
+            in_stock: sizes.length ? inStock.length > 0 : !!it.isinstock,
+            all_images: allImages.length ? allImages : null,
+            image_colors: Object.keys(imgColors).length ? imgColors : null,
+        };
+    };
+
+    // ================= HOLLISTER =================
+    // ============================================================
+    // HOLLISTER (Abercrombie & Fitch, micro-frontend React + Apollo) — kiểm 2026-10-26
+    // ============================================================
+    // Link /shop/wd/p/<slug>-<id>?seq=<NN>: 1 trang chung mọi màu, ?seq= chỉ chọn sẵn màu.
+    // Nguồn: window['APOLLO_STATE__product-mfe-web-service-ProductPageFrontend-config']
+    //   .CACHE.ROOT_QUERY['collection({...})'].collection
+    //   · products[] = MỖI MÀU 1 product {productId, swatchName, defaultSwatchSequence,
+    //     productPageUrl (?seq=NN), longDescription, fabricDetails, careDetailsList,
+    //     prices.list{listPriceUSD, offerPriceUSD}, orderedImages[{zoomImageSrc}]}
+    //   · skus[] {productId, sizePrimary "XL_p", sizeSecondary "Regular_s", inventory, inventoryStatus}
+    //   · primarySizeArray / secondarySizeArray [{value, label}] — secondary = Short/Regular/Long
+    //     (quần) -> trục giữa (variant) khi có > 1 giá trị.
+    // BẪY 1: JSON-LD chỉ có ảnh prod1 cỡ medium + giá list -> không dùng.
+    // BẪY 2: màu đang xem = input[name=pdp_swatch]:checked (value = productId); trang SSR
+    //   có thể chưa vẽ -> ?seq= khớp defaultSwatchSequence -> state.productId.
+    // Ảnh: zoomImageSrc (?policy=product-extra-large) là cỡ lớn nhất trang dùng.
+    const hoState = () => window['APOLLO_STATE__product-mfe-web-service-ProductPageFrontend-config'] || null;
+    const hoCol = () => {
+        const st = hoState();
+        const rq = st && st.CACHE && st.CACHE.ROOT_QUERY;
+        if (!rq) return null;
+        const k = Object.keys(rq).filter((x) => /^collection\(/.test(x))[0];
+        return (k && rq[k] && rq[k].collection) || null;
+    };
+    const hoProducts = () => ((hoCol() || {}).products || []).filter((p) => p && p.productId);
+    // BẪY 3: 1 trang có thể gộp NHIỀU MẪU khác tên (jeans: "Low-Rise Baggy Jeans" washed black,
+    //   "Low-Rise Drawstring Baggy Jeans" washed black...) -> tên màu trùng thì thêm "#<seq>",
+    //   và khai color_titles = productName riêng từng ô.
+    const hoBaseName = (p) => S(p && (p.swatchName || p.colorFamily)).toLowerCase()
+        .replace(/(^|[\s\-/&])([a-z])/g, (m, a, b) => a + b.toUpperCase()).trim();
+    const hoName = (p) => {
+        const base = hoBaseName(p);
+        const dup = hoProducts().filter((x) => hoBaseName(x) === base).length > 1;
+        return dup ? base + ' #' + S(p.defaultSwatchSequence || p.productId) : base;
+    };
+    const hoCur = () => {
+        const ps = hoProducts();
+        const inp = document.querySelector('input[name="pdp_swatch"]:checked');
+        let p = inp && ps.filter((x) => x.productId === S(inp.value))[0];
+        if (p) return p;
+        const seq = (location.search.match(/[?&]seq=(\d+)/) || [])[1];
+        if (seq) p = ps.filter((x) => S(x.defaultSwatchSequence) === seq)[0];
+        if (p) return p;
+        const st = hoState();
+        return ps.filter((x) => x.productId === S(st && st.productId))[0] || ps[0] || null;
+    };
+    const hoPrice = (p) => {
+        const l = p && p.prices && p.prices.list;
+        if (!l) return null;
+        const offer = Number(l.offerPriceUSD), list = Number(l.listPriceUSD);
+        if (!offer) return null;
+        return { price: offer, list_price: list && list > offer ? list : null };
+    };
+    const hoImages = (p) => ((p && p.orderedImages) || [])
+        .map((i) => abs(i.zoomImageSrc || i.largeMainImageSrc || i.mainImageSrc)).filter(Boolean);
+    const hoLink = (p) => (p && p.productPageUrl ? abs(p.productPageUrl) : '');
+    const hoDescSections = () => {
+        const p = hoCur();
+        if (!p) return [];
+        const out = [];
+        if (S(p.longDescription).trim()) out.push({ title: 'Description', kind: 'description', html: '<p>' + escHtml(p.longDescription) + '</p>' });
+        const fit = p.fitInformation && p.fitInformation.ofpModelHeight
+            ? 'Model is ' + p.fitInformation.ofpModelHeight + ' and wears size ' + S(p.fitInformation.ofpModelSize) : '';
+        const care = (p.careDetailsList || []).map((c) => S(c.value).trim()).filter(Boolean);
+        const lis = [];
+        if (S(p.fabricDetails).trim()) lis.push(escHtml(p.fabricDetails));
+        care.forEach((c) => lis.push(escHtml(c)));
+        if (lis.length) out.push({ title: 'Fabric & Care', kind: 'fit_care', html: '<ul><li>' + lis.join('</li><li>') + '</li></ul>' });
+        if (fit) out.push({ title: 'Size & Fit', kind: 'size_fit', html: '<p>' + escHtml(fit) + '</p>' });
+        return out;
+    };
+    const hoExtra = () => {
+        const col = hoCol();
+        const ps = hoProducts();
+        const cur = hoCur();
+        if (!col || !cur) { log('hollister: chưa thấy Apollo state'); return null; }
+        const prim = col.primarySizeArray || [];
+        const sec = col.secondarySizeArray || [];
+        const useVar = sec.length > 1;
+        const lab = (arr, v) => { const t = arr.filter((x) => x.value === v)[0]; return t ? S(t.label || t.sizeText) : S(v).replace(/_[ps]$/, ''); };
+        const skus = col.skus || [];
+        // inventoryStatus: Available / Low Inventory / Unavailable (Unavailable vẫn có inventory > 0)
+        const okSku = (s) => /^(available|low)/i.test(S(s.inventoryStatus).trim());
+        const matrix = [];
+        ps.forEach((p) => (useVar ? sec : [null]).forEach((v) => {
+            const mine = skus.filter((s) => s.productId === p.productId && (!v || s.sizeSecondary === v.value));
+            if (!mine.length) return;
+            const ins = [], outs = [];
+            prim.forEach((t) => {
+                const list = mine.filter((s) => s.sizePrimary === t.value);
+                if (!list.length) return;
+                (list.some(okSku) ? ins : outs).push(lab(prim, t.value));
+            });
+            matrix.push({ color: hoName(p), variant: v ? lab(sec, v.value) : '', sizes_in_stock: ins, sizes_out_of_stock: outs });
+        }));
+        const curName = hoName(cur);
+        const curRows = matrix.filter((m) => m.color === curName);
+        const order = prim.map((t) => lab(prim, t.value));
+        const sizes = order.filter((s) => curRows.some((m) => m.sizes_in_stock.concat(m.sizes_out_of_stock).indexOf(s) >= 0));
+        const inStock = sizes.filter((s) => curRows.some((m) => m.sizes_in_stock.indexOf(s) >= 0));
+        const allImages = [], imgColors = {}, links = {}, prices = {}, codes = {}, titles = {};
+        [cur].concat(ps.filter((p) => p !== cur)).forEach((p) => {
+            const n = hoName(p);
+            codes[n] = p.productId;
+            if (p.productName && p.productName !== cur.productName) titles[n] = decodeHtml(p.productName);
+            if (hoLink(p)) links[n] = hoLink(p);
+            const pr = hoPrice(p);
+            if (pr) prices[n] = pr;
+            hoImages(p).forEach((u) => { if (allImages.indexOf(u) < 0) { allImages.push(u); imgColors[u] = n; } });
+        });
+        const cp = hoPrice(cur);
+        log('hollister: ' + ps.length + ' màu, đang xem ' + curName + ', ' + sizes.length + ' size (' + inStock.length + ' còn)');
+        return {
+            current_color: curName,
+            color_label: 'Color',
+            colors: ps.map(hoName),
+            variant_label: useVar ? 'Length' : '',
+            current_variant: '',
+            size_label: sizes.length ? 'Size' : '',
+            sizes: sizes,
+            sizes_in_stock: inStock,
+            sizes_out_of_stock: sizes.filter((s) => inStock.indexOf(s) < 0),
+            stock_matrix: matrix,
+            in_stock: sizes.length ? inStock.length > 0 : null,
+            list_price: cp ? cp.list_price : null,
+            all_images: allImages.length ? allImages : null,
+            image_colors: Object.keys(imgColors).length ? imgColors : null,
+            color_codes: codes,
+            color_links: links,
+            color_prices: prices,
+            color_titles: Object.keys(titles).length ? titles : null,
+        };
+    };
+
+    // ================= GAP INC (BANANA REPUBLIC / GAP / OLD NAVY / ATHLETA) =================
+    // ============================================================
+    // GAP INC (Next.js) — kiểm 2026-10-26 trên bananarepublic.gap.com
+    // ============================================================
+    // Link /browse/product.do?pid=<customer choice 10 số>&vid=1: 1 trang chung mọi màu.
+    // Nguồn: window.__PRODUCT_PAGE_STATE__.initialProductData
+    //   · styles[<style>] {description = tên, copy_headers[{id overview|fitAndSizing|fabric, bullets}]}
+    //   · customer_choices[<cc>] {description = tên màu, images[{crops[{type ZOOM, absolute_url}]}]}
+    //   · variants[REGULAR|PETITE|TALL...].customer_choices[<cc>] {price{min_effective_price,
+    //     max_regular_price}, skus[{size_dimension1, size_dimension2, isInstock}]}
+    //     -> mỗi variant khác REGULAR = trục giữa (Petite/Tall); 2 chiều size ghép "30W / 32L".
+    // BẪY 1: crops ZOOM = 1500x2000, cỡ lớn nhất site cắt sẵn (ảnh pristine là PNG nặng).
+    // BẪY 2: bullet cuối "Product #1181574" là mã hàng, không phải mô tả -> bỏ.
+    // Khoá ADAPTERS 'gap.com' khớp luôn bananarepublic./oldnavy./athleta.gap.com (cùng nền).
+    const GAP_BRANDS = { br: 'Banana Republic', brfs: 'Banana Republic Factory', gp: 'Gap', gpfs: 'Gap Factory', on: 'Old Navy', at: 'Athleta' };
+    const gpData = () => {
+        const st = window.__PRODUCT_PAGE_STATE__;
+        return (st && st.initialProductData) || null;
+    };
+    const gpStyle = () => {
+        const d = gpData();
+        const ss = (d && d.styles) || {};
+        return ss[Object.keys(ss)[0]] || null;
+    };
+    const gpCcIds = () => {
+        const d = gpData();
+        return d ? Object.keys(d.customer_choices || {}) : [];
+    };
+    const gpCurId = () => {
+        const d = gpData();
+        const ids = gpCcIds();
+        const pid = (location.search.match(/[?&]pid=(\d{10})/) || [])[1];
+        if (pid && ids.indexOf(pid) >= 0) return pid;
+        const sel = d && d.selectedCustomerChoice && S(d.selectedCustomerChoice.customer_choice_id);
+        if (sel && ids.indexOf(sel) >= 0) return sel;
+        return (d && ids.indexOf(S(d.input_id)) >= 0) ? S(d.input_id) : ids[0] || '';
+    };
+    const gpCcName = (id) => {
+        const d = gpData();
+        const c = d && d.customer_choices && d.customer_choices[id];
+        return c ? S(c.description).trim() : '';
+    };
+    // Ô màu trong từng variant (REGULAR/PETITE...)
+    const gpVarCc = (vk, id) => {
+        const d = gpData();
+        const v = d && d.variants && d.variants[vk];
+        return (v && v.customer_choices && v.customer_choices[id]) || null;
+    };
+    const gpVarKeys = () => {
+        const d = gpData();
+        const ks = Object.keys((d && d.variants) || {});
+        const r = ks.indexOf('REGULAR');
+        if (r > 0) { ks.splice(r, 1); ks.unshift('REGULAR'); }
+        return ks;
+    };
+    const gpPriceOf = (id) => {
+        const vk = gpVarKeys().filter((k) => gpVarCc(k, id))[0];
+        const p = vk && gpVarCc(vk, id).price;
+        if (!p || !p.min_effective_price) return null;
+        const cur = Number(p.min_effective_price), reg = Number(p.max_regular_price);
+        return { price: cur, list_price: reg && reg > cur ? reg : null };
+    };
+    const gpImages = (id) => {
+        const d = gpData();
+        const c = d && d.customer_choices && d.customer_choices[id];
+        const out = [];
+        ((c && c.images) || []).forEach((im) => {
+            const z = (im.crops || []).filter((x) => /zoom/i.test(S(x.type)))[0];
+            const u = abs((z && z.absolute_url) || im.absolute_url || '');
+            if (u && out.indexOf(u) < 0) out.push(u);
+        });
+        return out;
+    };
+    const gpLink = (id) => location.origin + '/browse/product.do?pid=' + id + '&vid=1';
+    const gpVarLabel = (vk) => S(vk).toLowerCase().replace(/(^|[\s_])([a-z])/g, (m, a, b) => (a ? ' ' : '') + b.toUpperCase());
+    const gpSizeOf = (sku) => [sku.size_dimension1, sku.size_dimension2].map((x) => S(x).trim()).filter(Boolean).join(' / ');
+    const gpDescSections = () => {
+        const st = gpStyle();
+        const KIND = { overview: 'description', fitAndSizing: 'size_fit', fabric: 'fit_care' };
+        const out = [];
+        ((st && st.copy_headers) || []).forEach((h) => {
+            const bl = (h.bullets || []).map((b) => S(b).trim()).filter((b) => b && !/^product\s*#\s*\d+$/i.test(b));
+            const parts = [];
+            if (S(h.description).trim()) parts.push('<p>' + escHtml(h.description) + '</p>');
+            if (bl.length) parts.push('<ul><li>' + bl.map(escHtml).join('</li><li>') + '</li></ul>');
+            if (parts.length) out.push({ title: S(h.label || h.name), kind: KIND[h.id] || 'details', html: parts.join('') });
+        });
+        return out;
+    };
+    const gpExtra = () => {
+        const d = gpData();
+        if (!d) { log('gap: chưa thấy __PRODUCT_PAGE_STATE__'); return null; }
+        const ids = gpCcIds();
+        const cur = gpCurId();
+        const vks = gpVarKeys();
+        const useVar = vks.length > 1;
+        const matrix = [];
+        ids.forEach((id) => vks.forEach((vk) => {
+            const vc = gpVarCc(vk, id);
+            if (!vc) return;
+            const ins = [], outs = [];
+            (vc.skus || []).forEach((k) => {
+                const s = gpSizeOf(k);
+                if (!s || ins.indexOf(s) >= 0 || outs.indexOf(s) >= 0) return;
+                (k.isInstock && !k.isOutOfStock ? ins : outs).push(s);
+            });
+            matrix.push({ color: gpCcName(id), variant: useVar ? gpVarLabel(vk) : '', sizes_in_stock: ins, sizes_out_of_stock: outs });
+        }));
+        // skus không theo thứ tự (M, S, XL...) -> xếp theo sort_order của size_dimension1/2_list
+        const rank = {};
+        vks.forEach((vk) => {
+            const v = d.variants[vk] || {};
+            [v.size_dimension1_list, v.size_dimension2_list].forEach((list, i) => (list || []).forEach((x) => {
+                rank[i + ':' + S(x.dimension)] = Number(x.sort_order) || 0;
+            }));
+        });
+        const sortKey = (s) => s.split(' / ').map((p, i) => String(1e6 + (rank[i + ':' + p] || 0))).join('|');
+        const bySize = (a, b) => (sortKey(a) < sortKey(b) ? -1 : sortKey(a) > sortKey(b) ? 1 : 0);
+        matrix.forEach((m) => { m.sizes_in_stock.sort(bySize); m.sizes_out_of_stock.sort(bySize); });
+        const curName = gpCcName(cur);
+        const curRows = matrix.filter((m) => m.color === curName);
+        const sizes = [], inStock = [];
+        curRows.forEach((m) => {
+            m.sizes_in_stock.forEach((s) => { if (inStock.indexOf(s) < 0) inStock.push(s); });
+            m.sizes_in_stock.concat(m.sizes_out_of_stock).forEach((s) => { if (sizes.indexOf(s) < 0) sizes.push(s); });
+        });
+        sizes.sort(bySize);
+        inStock.sort(bySize);
+        const allImages = [], imgColors = {}, links = {}, prices = {}, codes = {};
+        [cur].concat(ids.filter((x) => x !== cur)).forEach((id) => {
+            const n = gpCcName(id);
+            codes[n] = id;
+            links[n] = gpLink(id);
+            const pr = gpPriceOf(id);
+            if (pr) prices[n] = pr;
+            gpImages(id).forEach((u) => { if (allImages.indexOf(u) < 0) { allImages.push(u); imgColors[u] = n; } });
+        });
+        const cp = gpPriceOf(cur);
+        log('gap: ' + ids.length + ' màu × ' + vks.join('/') + ', đang xem ' + curName + ' (' + cur + '), '
+            + sizes.length + ' size (' + inStock.length + ' còn)');
+        return {
+            current_color: curName,
+            color_label: 'Color',
+            colors: ids.map(gpCcName),
+            variant_label: useVar ? 'Fit' : '',
+            current_variant: '',
+            size_label: sizes.length ? 'Size' : '',
+            sizes: sizes,
+            sizes_in_stock: inStock,
+            sizes_out_of_stock: sizes.filter((s) => inStock.indexOf(s) < 0),
+            stock_matrix: matrix,
+            in_stock: sizes.length ? inStock.length > 0 : !d.isFullyOOS,
+            list_price: cp ? cp.list_price : null,
+            all_images: allImages.length ? allImages : null,
+            image_colors: Object.keys(imgColors).length ? imgColors : null,
+            color_codes: codes,
+            color_links: links,
+            color_prices: prices,
+        };
+    };
+
+    // ================= THEORY / HELMUT LANG =================
+    // ============================================================
+    // THEORY + HELMUT LANG (Fast Retailing, Salesforce SFRA, chung 1 bộ code) — kiểm 2026-10-26
+    // ============================================================
+    // Link /<...>/<master>_<mã màu>.html (Q0801208_G0F.html): MỖI MÀU 1 LINK riêng (variation
+    // group), size chung link. Lấy đủ mọi màu qua API SFRA cùng origin:
+    //   GET /on/demandware.store/<Sites-theory2_US-Site | Sites-helmutlang2_US-Site>/default/
+    //       Product-Variation?pid=<master>_<màu>&quantity=1
+    //   -> product {productName, masterId, price{sales,list}, originalPrice{sales USD},
+    //      variationAttributes[color{value,displayValue,productLink}|size{displayValue,selectable}],
+    //      images.large[{urllarge}], shortDescription (HTML), longDescription (gạch đầu dòng "—"),
+    //      material, fabric, care, modelSize}
+    // BẪY 1: IP không phải Mỹ -> price.sales là VND, nhưng price.originalPrice.sales vẫn là giá USD của
+    //   giá ĐANG BÁN; giá gốc USD = USD × list/sales (cùng tỉ giá).
+    // BẪY 2: ảnh Amplience "?$TH-pdp-large-desktop$" = 1800x2250; ?w=2000 bị độn nền thành vuông.
+    // BẪY 3: trường `fit` của Helmut Lang lại chứa thành phần vải -> dùng `material`, bỏ `fit`.
+    // BẪY 4: ô màu có thể thuộc MẪU KHÁC (Helmut Lang: Relaxed Bootcut Q07DW202_2XF có ô STC =
+    //   Q04DW202_STC) -> pid của màu = values[].varGroupId, không phải <master>_<màu>; ô đó không
+    //   có productLink -> link Product-Show?pid=, tên riêng -> color_titles.
+    // Dòng cuối longDescription là mã style (Q07DW202) -> bỏ.
+    const frSite = () => {
+        const m = document.documentElement.innerHTML.match(/\/on\/demandware\.store\/(Sites-[A-Za-z0-9_]+-Site)\//);
+        return m ? m[1] : (/helmutlang/.test(location.hostname) ? 'Sites-helmutlang2_US-Site' : 'Sites-theory2_US-Site');
+    };
+    const frPid = () => {
+        const m = location.pathname.match(/\/([A-Z0-9]+_[A-Z0-9]+)\.html/i);
+        if (m) return m[1].toUpperCase();
+        const el = document.querySelector('.product-detail[data-pid]');
+        return el ? S(el.getAttribute('data-pid')) : '';
+    };
+    const frStore = () => {
+        try { return window.__scFrVar || (window.__scFrVar = {}); } catch (e) { return {}; }
+    };
+    const frGet = async (site, pid, signal) => {
+        const r = await fetch('/on/demandware.store/' + site + '/default/Product-Variation?pid=' + encodeURIComponent(pid)
+            + '&quantity=1', { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' }, signal });
+        const j = r.ok ? await r.json() : null;
+        return j && j.product ? j.product : null;
+    };
+    const frAttr = (p, id) => ((p && p.variationAttributes) || []).filter((a) => a.id === id)[0] || null;
+    const frColorPid = (master, v) => S(v.varGroupId).trim() || master + '_' + S(v.value);
+    const frPrefetch = async () => {
+        const pid = frPid();
+        if (!pid) return;
+        const store = frStore();
+        const site = frSite();
+        const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+        const timer = setTimeout(() => { if (ctl) ctl.abort(); }, 9000);
+        try {
+            if (!store[pid]) store[pid] = await frGet(site, pid, ctl ? ctl.signal : undefined);
+            const p = store[pid];
+            if (!p) return;
+            const master = S(p.masterId) || pid.split('_')[0];
+            const ca = frAttr(p, 'color');
+            const todo = ((ca && ca.values) || []).map((v) => frColorPid(master, v)).filter((x) => !store[x]);
+            await Promise.all(todo.map((x) => frGet(site, x, ctl ? ctl.signal : undefined)
+                .then((q) => { if (q) store[x] = q; }).catch(() => {})));
+            log('fr: ' + site + ' Product-Variation ' + (todo.length + 1) + ' màu');
+        } finally {
+            clearTimeout(timer);
+        }
+    };
+    const frVar = (pid) => frStore()[pid] || null;
+    const frCur = () => frVar(frPid());
+    const frTitleCase = (s) => S(s).toLowerCase().replace(/(^|[\s\-/&])([a-z])/g, (m, a, b) => a + b.toUpperCase()).trim();
+    const frPriceOf = (p) => {
+        const pr = p && p.price;
+        if (!pr || !pr.sales) return null;
+        const sv = Number(pr.sales.value), lv = pr.list ? Number(pr.list.value) : 0;
+        if (S(pr.sales.currency).toUpperCase() === 'USD' && sv) return { price: sv, list_price: lv > sv ? lv : null };
+        const op = pr.originalPrice || p.originalPrice;
+        const o = op && op.sales;
+        const usd = o && S(o.currency).toUpperCase() === 'USD' ? Number(o.value) : 0;
+        if (!usd) return null;
+        return { price: usd, list_price: lv > sv && sv ? Math.round(usd * lv / sv) : null };
+    };
+    const frImages = (p) => (((p && p.images) || {}).large || [])
+        .map((i) => S(i.urllarge || i.url).trim()).filter(Boolean)
+        .map((u) => abs(/^\/\//.test(u) ? 'https:' + u : u));
+    const frColorName = (p) => {
+        const ca = frAttr(p, 'color');
+        const id = p ? S(p.id).split('_').pop() : '';
+        const v = ca && (ca.values || []).filter((x) => S(x.value) === id)[0];
+        return frTitleCase(v ? v.displayValue || v.value : id);
+    };
+    const frDescSections = () => {
+        const p = frCur();
+        if (!p) return [];
+        const out = [];
+        const intro = S(p.shortDescription).trim();
+        if (intro) out.push({ title: 'Description', kind: 'description', html: /<[a-z]/i.test(intro) ? intro : '<p>' + escHtml(intro) + '</p>' });
+        // longDescription: "—&nbsp;&nbsp; Mid-rise<br>— ..." -> danh sách
+        const bul = S(p.longDescription).split(/<br\s*\/?>|\n/i).map((x) => stripHtml(x).replace(/^[\s—\-• ]+/, '').trim())
+            .filter((x) => x && x.toUpperCase() !== S(p.masterId).toUpperCase());
+        if (bul.length) out.push({ title: 'Details', kind: 'details', html: '<ul><li>' + bul.map(escHtml).join('</li><li>') + '</li></ul>' });
+        const care = [p.fabric ? 'Fabric: ' + frTitleCase(p.fabric) : '', p.material, p.care].map((x) => S(x).trim()).filter(Boolean);
+        if (care.length) out.push({ title: 'Fabric & Care', kind: 'fit_care', html: '<ul><li>' + care.map(escHtml).join('</li><li>') + '</li></ul>' });
+        if (S(p.modelSize).trim()) out.push({ title: 'Size & Fit', kind: 'size_fit', html: '<p>' + escHtml(p.modelSize) + '</p>' });
+        return out;
+    };
+    const frExtra = () => {
+        const cur = frCur();
+        if (!cur) { log('fr: chưa gọi được Product-Variation'); return null; }
+        const master = S(cur.masterId) || frPid().split('_')[0];
+        const ca = frAttr(cur, 'color');
+        const vals = (ca && ca.values) || [];
+        const rows = vals.map((v) => {
+            const pid = frColorPid(master, v);
+            const p = frVar(pid);
+            const sa = frAttr(p, 'size');
+            const sizes = sa ? (sa.values || []).map((z) => ({ s: S(z.displayValue || z.value).trim(), ok: z.selectable !== false })).filter((z) => z.s) : null;
+            const link = S(v.productLink).split('?')[0]
+                || (p ? '/on/demandware.store/' + frSite() + '/default/Product-Show?pid=' + encodeURIComponent(pid) : '');
+            return { pid, name: frTitleCase(v.displayValue || v.value), p, sizes, link };
+        });
+        let me = rows.filter((r) => r.pid === S(cur.id))[0];
+        if (!me) { me = { pid: S(cur.id), name: frColorName(cur), p: cur, sizes: null, link: location.href.split('?')[0] }; rows.unshift(me); }
+        if (!me.sizes) {
+            const sa = frAttr(cur, 'size');
+            me.sizes = sa ? (sa.values || []).map((z) => ({ s: S(z.displayValue || z.value).trim(), ok: z.selectable !== false })).filter((z) => z.s) : [];
+        }
+        // Màu không có link riêng (selectable=false, chưa bán) và gọi API không ra -> bỏ
+        const live = rows.filter((r) => r === me || r.p);
+        const missing = rows.filter((r) => !r.p).map((r) => r.name);
+        if (missing.length) warnings.push('Không lấy được dữ liệu màu: ' + missing.join(', '));
+        const matrix = live.filter((r) => r.sizes && r.sizes.length).map((r) => ({
+            color: r.name, variant: '',
+            sizes_in_stock: r.sizes.filter((z) => z.ok).map((z) => z.s),
+            sizes_out_of_stock: r.sizes.filter((z) => !z.ok).map((z) => z.s),
+        }));
+        const sizes = me.sizes.map((z) => z.s);
+        const inStock = me.sizes.filter((z) => z.ok).map((z) => z.s);
+        const allImages = [], imgColors = {}, links = {}, prices = {}, codes = {}, titles = {};
+        [me].concat(live.filter((r) => r !== me)).forEach((r) => {
+            codes[r.name] = r.pid;
+            if (r.p && r.p.productName && r.p.productName !== cur.productName) titles[r.name] = decodeHtml(r.p.productName);
+            if (r.link) links[r.name] = abs(r.link);
+            const pr = frPriceOf(r.p);
+            if (pr) prices[r.name] = pr;
+            frImages(r.p).forEach((u) => { if (allImages.indexOf(u) < 0) { allImages.push(u); imgColors[u] = r.name; } });
+        });
+        const cp = frPriceOf(cur);
+        log('fr: ' + master + ' đang xem ' + me.name + ', ' + live.length + '/' + rows.length + ' màu, '
+            + sizes.length + ' size (' + inStock.length + ' còn), giá ' + (cp ? cp.price + '/' + cp.list_price : '?'));
+        return {
+            current_color: me.name,
+            color_label: 'Color',
+            colors: live.map((r) => r.name),
+            size_label: sizes.length ? 'Size' : '',
+            sizes: sizes,
+            sizes_in_stock: inStock,
+            sizes_out_of_stock: sizes.filter((s) => inStock.indexOf(s) < 0),
+            stock_matrix: matrix,
+            in_stock: sizes.length ? inStock.length > 0 : cur.available !== false,
+            list_price: cp ? cp.list_price : null,
+            all_images: allImages.length ? allImages : null,
+            image_colors: Object.keys(imgColors).length ? imgColors : null,
+            color_codes: codes,
+            color_links: links,
+            color_prices: prices,
+            color_titles: Object.keys(titles).length ? titles : null,
+        };
+    };
+    const frAdapter = (brand) => ({
+        ready: '.product-detail[data-pid]',
+        identity: 'color+variant',
+        brand: brand,
+        prefetch: () => frPrefetch(),
+        title: () => {
+            const p = frCur();
+            if (p && p.productName) return decodeHtml(p.productName);
+            const ld = ldProduct();
+            return ld ? decodeHtml(ld.name) : selText('h1');
+        },
+        // Giá luôn USD (kể cả IP không phải Mỹ) — xem BẪY 1
+        price: () => {
+            const pr = frPriceOf(frCur());
+            return pr ? { value: pr.price, currency: 'USD' } : null;
+        },
+        description: () => {
+            const s = frDescSections()[0];
+            return s ? htmlToText(s.html) : ldDesc();
+        },
+        descriptionSections: () => frDescSections(),
+        images: () => {
+            const list = frImages(frCur());
+            return list.length ? list : ldImages();
+        },
+        extra: () => frExtra(),
+    });
+
+    // ================= PRANA =================
+    // ============================================================
+    // PRANA (Columbia, Salesforce SFRA tuỳ biến) — kiểm 2026-10-26
+    // ============================================================
+    // Link /p/<slug>/<style>.html[?dwvar_<style>_color=<Tên màu>]: 1 trang chung mọi màu.
+    // Nguồn: API cùng origin
+    //   GET /on/demandware.store/Sites-Prana_US-Site/en_US/Product-Variation?pid=<style>
+    //       &dwvar_<style>_color=<Tên màu>&quantity=1
+    //   -> product {productName, price.sales/list, variationAttributes[color{value, salesPrice,
+    //      listPrice, pdpUrl}|size|dimension (inseam 29/31/33)], variantData{<sku>: {color, size,
+    //      dimension, inventory}}, images['hi-res'][{url}] (CHỈ của màu trong dwvar),
+    //      attributes[{ID productCopy|productFeatures, attributes[{label, value}]}]}
+    //   Gọi 1 lần/màu trong prefetch để lấy ảnh từng màu.
+    // BẪY 1: PerimeterX chặn trình duyệt tự động — chỉ chạy được trong Chrome thật.
+    // BẪY 2: "Features" là 1 chuỗi nối bằng "|" -> tách thành gạch đầu dòng.
+    // Còn hàng = variantData[...].inventory > 0 (selectable chỉ nói có ít nhất 1 tổ hợp còn).
+    const PR_SITE = '/on/demandware.store/Sites-Prana_US-Site/en_US/Product-Variation';
+    const prStyle = () => {
+        const m = location.pathname.match(/\/(\d{5,})\.html/);
+        return m ? m[1] : '';
+    };
+    const prStore = () => {
+        try { return window.__scPrVar || (window.__scPrVar = {}); } catch (e) { return {}; }
+    };
+    const prUrlColor = () => {
+        const st = prStyle();
+        const m = location.search.match(new RegExp('[?&]dwvar_' + st + '_color=([^&#]+)'));
+        return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
+    };
+    const prGet = async (color, signal) => {
+        const st = prStyle();
+        const r = await fetch(PR_SITE + '?pid=' + st + (color ? '&dwvar_' + st + '_color=' + encodeURIComponent(color) : '')
+            + '&quantity=1', { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' }, signal });
+        const j = r.ok ? await r.json() : null;
+        return j && j.product ? j.product : null;
+    };
+    const prAttr = (p, id) => ((p && p.variationAttributes) || []).filter((a) => a.id === id)[0] || null;
+    const prPrefetch = async () => {
+        const st = prStyle();
+        if (!st) return;
+        const store = prStore();
+        const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+        const timer = setTimeout(() => { if (ctl) ctl.abort(); }, 9000);
+        try {
+            const first = prUrlColor();
+            if (!store.base) store.base = await prGet(first, ctl ? ctl.signal : undefined);
+            const base = store.base;
+            if (!base) return;
+            const sel = ((prAttr(base, 'color') || {}).values || []).filter((v) => v.selected)[0];
+            if (sel && !store[sel.value]) store[sel.value] = base;
+            const todo = ((prAttr(base, 'color') || {}).values || []).map((v) => S(v.value)).filter((c) => c && !store[c]);
+            await Promise.all(todo.map((c) => prGet(c, ctl ? ctl.signal : undefined)
+                .then((q) => { if (q) store[c] = q; }).catch(() => {})));
+            log('prana: Product-Variation ' + (todo.length + 1) + ' màu');
+        } finally {
+            clearTimeout(timer);
+        }
+    };
+    const prBase = () => prStore().base || null;
+    const prCurColor = () => {
+        const vals = (prAttr(prBase(), 'color') || {}).values || [];
+        const u = prUrlColor();
+        const hit = vals.filter((v) => S(v.value).toLowerCase() === u.toLowerCase())[0]
+            || vals.filter((v) => v.selected)[0] || vals[0];
+        return hit ? S(hit.value) : '';
+    };
+    const prImages = (color) => {
+        const p = prStore()[color];
+        return (((p && p.images) || {})['hi-res'] || []).map((i) => abs(i.url)).filter(Boolean);
+    };
+    const prColorPrice = (color) => {
+        const v = ((prAttr(prBase(), 'color') || {}).values || []).filter((x) => S(x.value) === color)[0];
+        const s = v && v.salesPrice ? Number(v.salesPrice.value) : 0;
+        const l = v && v.listPrice ? Number(v.listPrice.value) : 0;
+        if (!s) {
+            const pr = prBase() && prBase().price;
+            const ps = pr && pr.sales ? Number(pr.sales.value) : 0;
+            const pl = pr && pr.list ? Number(pr.list.value) : 0;
+            return ps ? { price: ps, list_price: pl > ps ? pl : null } : null;
+        }
+        return { price: s, list_price: l > s ? l : null };
+    };
+    const prCopy = (id, label) => {
+        const g = ((prBase() && prBase().attributes) || []).filter((a) => a.ID === id)[0];
+        const a = g && (g.attributes || []).filter((x) => S(x.label).toLowerCase() === label.toLowerCase())[0];
+        if (!a) return '';
+        return Array.isArray(a.value) ? a.value.join('|') : S(a.value);
+    };
+    const prDescSections = () => {
+        const p = prBase();
+        if (!p) return [];
+        const out = [];
+        const pitch = S(p.productPitch || prCopy('productCopy', 'Product Pitch')).trim();
+        if (pitch) out.push({ title: 'Description', kind: 'description', html: '<p>' + escHtml(pitch) + '</p>' });
+        const feats = prCopy('productCopy', 'Features').split('|').map((x) => x.trim()).filter(Boolean);
+        if (feats.length) out.push({ title: 'Features', kind: 'details', html: '<ul><li>' + feats.map(escHtml).join('</li><li>') + '</li></ul>' });
+        const fab = prCopy('productCopy', 'Fabric').trim();
+        if (fab) out.push({ title: 'Fabric', kind: 'fit_care', html: '<p>' + escHtml(fab) + '</p>' });
+        const fit = ['Fit', 'Inseam'].map((k) => { const v = prCopy('productFeatures', k).replace(/\|/g, ', ').trim(); return v ? k + ': ' + v : ''; }).filter(Boolean);
+        if (fit.length) out.push({ title: 'Fit', kind: 'size_fit', html: '<ul><li>' + fit.map(escHtml).join('</li><li>') + '</li></ul>' });
+        return out;
+    };
+    const prExtra = () => {
+        const p = prBase();
+        if (!p) { log('prana: chưa gọi được Product-Variation'); return null; }
+        const colors = ((prAttr(p, 'color') || {}).values || []).map((v) => S(v.value));
+        const sizeOrder = ((prAttr(p, 'size') || {}).values || []).map((v) => S(v.displayValue || v.value));
+        const dimOrder = ((prAttr(p, 'dimension') || {}).values || []).map((v) => S(v.displayValue || v.value));
+        const useVar = dimOrder.length > 1;
+        const vd = p.variantData || {};
+        const skus = Object.keys(vd).map((k) => vd[k]).filter(Boolean);
+        const matrix = [];
+        colors.forEach((c) => (useVar ? dimOrder : [null]).forEach((d) => {
+            const mine = skus.filter((x) => S(x.color) === c && (d == null || S(x.dimension) === d));
+            if (!mine.length) return;
+            const ins = [], outs = [];
+            sizeOrder.forEach((s) => {
+                const list = mine.filter((x) => S(x.size) === s);
+                if (!list.length) return;
+                (list.some((x) => Number(x.inventory) > 0) ? ins : outs).push(s);
+            });
+            matrix.push({ color: c, variant: d || '', sizes_in_stock: ins, sizes_out_of_stock: outs });
+        }));
+        const cur = prCurColor();
+        const curRows = matrix.filter((m) => m.color === cur);
+        const sizes = sizeOrder.filter((s) => curRows.some((m) => m.sizes_in_stock.concat(m.sizes_out_of_stock).indexOf(s) >= 0));
+        const inStock = sizes.filter((s) => curRows.some((m) => m.sizes_in_stock.indexOf(s) >= 0));
+        // Màu hết sạch mọi size -> không tách dòng
+        const live = colors.filter((c) => c === cur || matrix.some((m) => m.color === c && m.sizes_in_stock.length));
+        const dead = colors.filter((c) => live.indexOf(c) < 0);
+        if (dead.length) warnings.push('Màu hết sạch mọi size: ' + dead.join(', '));
+        const allImages = [], imgColors = {}, links = {}, prices = {};
+        const vals = (prAttr(p, 'color') || {}).values || [];
+        [cur].concat(live.filter((c) => c !== cur)).forEach((c) => {
+            const v = vals.filter((x) => S(x.value) === c)[0];
+            if (v && v.pdpUrl) links[c] = abs(v.pdpUrl);
+            const pr = prColorPrice(c);
+            if (pr) prices[c] = pr;
+            prImages(c).forEach((u) => { if (allImages.indexOf(u) < 0) { allImages.push(u); imgColors[u] = c; } });
+        });
+        const cp = prColorPrice(cur);
+        log('prana: ' + prStyle() + ' ' + colors.length + ' màu (' + live.length + ' còn) × ' + (dimOrder.length || 1)
+            + ' inseam, đang xem ' + cur + ', ' + sizes.length + ' size (' + inStock.length + ' còn)');
+        return {
+            current_color: cur,
+            color_label: 'Color',
+            colors: live,
+            variant_label: useVar ? 'Inseam' : '',
+            current_variant: '',
+            size_label: sizes.length ? 'Size' : '',
+            sizes: sizes,
+            sizes_in_stock: inStock,
+            sizes_out_of_stock: sizes.filter((s) => inStock.indexOf(s) < 0),
+            stock_matrix: matrix.filter((m) => live.indexOf(m.color) >= 0),
+            in_stock: sizes.length ? inStock.length > 0 : p.available !== false,
+            list_price: cp ? cp.list_price : null,
+            all_images: allImages.length ? allImages : null,
+            image_colors: Object.keys(imgColors).length ? imgColors : null,
+            color_links: links,
+            color_prices: prices,
+        };
+    };
+
+    // ================= TOUCH OF CLASS =================
+    // ============================================================
+    // TOUCH OF CLASS (Magento cũ, render server, không có JSON-LD) — kiểm 2026-10-26 (IP US)
+    // ============================================================
+    // Link /<slug>/p/<mã hàng>/ (N650-025 = Camelot Almond): MỖI MÀU 1 LINK riêng -> identity color.
+    // BẪY 1: chặn IP ngoài Mỹ (CloudFront 403) -> phải bật VPN/proxy US.
+    // BẪY 2: trang bày cả bộ sưu tập (shams, pillows, drapery...) — mỗi món 1 khối .js-addtocart;
+    //   món chính = khối có radiogroup id bắt đầu bằng mã hàng trên link (N650-025_..._Buttons).
+    // BẪY 3: <h1> đầu là "Touch of Class" ẩn -> tên lấy h1.d-md-block.
+    // Size: label.btn-trait[data-name] trong khối chính; còn hàng từng size chỉ biết sau khi bấm
+    //   (TraitLookupAttributeChange) -> lấy chung theo .inventory-status của khối chính.
+    // Giá: ".price" khối chính "$359.00 - $399.00" -> mức thấp.
+    // Ảnh: /images/xxl/<mã>[_n].webp (xxl lớn nhất; trang lẫn bản xl).
+    // Mô tả: thẻ Overview (#card-overview) + Details (#card-details) + Sizes (#card-tab-sizes).
+    const tcItem = () => {
+        const m = location.pathname.match(/\/p\/([A-Z0-9]+-[A-Z0-9]+)/i);
+        return m ? m[1].toUpperCase() : '';
+    };
+    const tcMain = () => {
+        const it = tcItem();
+        const boxes = [].slice.call(document.querySelectorAll('.js-addtocart'));
+        const own = boxes.filter((b) => {
+            const g = b.querySelector('[role="radiogroup"]');
+            return g && it && S(g.id).toUpperCase().indexOf(it + '_') === 0;
+        })[0];
+        const box = own || boxes[0] || null;
+        // Khung chứa cả giá + trạng thái kho của món chính
+        let c = box;
+        for (let i = 0; i < 6 && c; i++) {
+            if (c !== box && c.querySelector('.price')) break;
+            c = c.parentElement;
+        }
+        return { box, wrap: c || box };
+    };
+    const tcPrice = () => {
+        const w = tcMain().wrap;
+        const el = w && w.querySelector('.price');
+        return el ? parsePrice(S(el.textContent).split('-')[0]) : null;
+    };
+    const tcImages = () => {
+        const it = tcItem();
+        const out = [];
+        [].slice.call(document.querySelectorAll('img, [data-src], [data-lazy], [data-zoom-image], a[href*="/images/"]')).forEach((e) => {
+            const u = S(e.getAttribute('data-zoom-image') || e.getAttribute('data-lazy') || e.getAttribute('data-src')
+                || (e.tagName === 'A' ? e.getAttribute('href') : '') || e.currentSrc || e.src);
+            const m = u.match(/\/images\/[a-z]+\/([A-Z0-9]+-[A-Z0-9]+(?:_\d+)?)\.(webp|jpe?g|png)/i);
+            if (!m || (it && m[1].toUpperCase().split('_')[0] !== it)) return;
+            const big = abs('/images/xxl/' + m[1] + '.' + m[2]);
+            if (out.indexOf(big) < 0) out.push(big);
+        });
+        return out;
+    };
+    const tcDescSections = () => {
+        const out = [];
+        [['card-overview', 'Overview', 'description'], ['card-details', 'Details', 'details'],
+         ['card-tab-sizes', 'Sizes', 'size_fit']].forEach((x) => {
+            const el = document.getElementById(x[0]);
+            if (!el || !S(el.textContent).trim()) return;
+            const c = el.cloneNode(true);
+            [].slice.call(c.querySelectorAll('script, style, button, img')).forEach((n) => n.remove());
+            out.push({ title: x[1], kind: x[2], el: c });
+        });
+        return out;
+    };
+    const tcExtra = () => {
+        const mn = tcMain();
+        if (!mn.box) { log('touchofclass: chưa thấy khối .js-addtocart'); return null; }
+        const sizes = [].slice.call(mn.box.querySelectorAll('label.btn-trait[data-name]'))
+            .map((l) => S(l.getAttribute('data-name')).trim()).filter(Boolean);
+        const st = mn.wrap && mn.wrap.querySelector('.inventory-status');
+        const ok = st ? /instock/i.test(S(st.className)) || /available|left/i.test(S(st.textContent)) : true;
+        log('touchofclass: ' + tcItem() + ', ' + sizes.length + ' size, kho: ' + (st ? S(st.textContent).trim() : '?'));
+        return {
+            size_label: sizes.length ? 'Size' : '',
+            sizes: sizes,
+            sizes_in_stock: ok ? sizes.slice() : [],
+            sizes_out_of_stock: ok ? [] : sizes.slice(),
+            in_stock: ok,
+        };
+    };
+
     // ================= PERSONAL CREATIONS =================
     // ============================================================
     // PERSONAL CREATIONS (PlanetArt, PHP + jQuery) — kiểm chứng 2026-09-24
@@ -6217,6 +7056,124 @@ async (opts) => {
                 const list = oxImages();
                 return list.length ? list : ldImages().map(oxBig);
             },
+        },
+
+        // --- Anodyne (NetSuite SuiteCommerce) — xem khối ANODYNE ở trên. Chung 1 link mọi màu. ---
+        'anodyneshoes.com': {
+            ready: '.product-details-full, h1',
+            identity: 'color+variant',
+            brand: 'Anodyne',
+            prefetch: () => anPrefetch(),
+            title: () => {
+                const it = anItem();
+                return it ? decodeHtml(S(it.storedisplayname2 || it.displayname)) : selText('h1');
+            },
+            price: () => {
+                const it = anItem();
+                const p = it && it.onlinecustomerprice_detail && it.onlinecustomerprice_detail.onlinecustomerprice;
+                return p ? { value: Number(p), currency: 'USD' } : ldPrice();
+            },
+            description: () => {
+                const it = anItem();
+                return it && it.storedetaileddescription ? htmlToText(it.storedetaileddescription) : ldDesc();
+            },
+            descriptionSections: () => {
+                const it = anItem();
+                return it && it.storedetaileddescription
+                    ? [{ title: 'Description', kind: 'description', html: it.storedetaileddescription }] : [];
+            },
+            images: () => anColorImages(anCurColor()),
+            extra: () => anExtra(),
+        },
+
+        // --- Hollister (A&F, Apollo state) — xem khối HOLLISTER ở trên. Chung 1 link mọi màu. ---
+        'hollisterco.com': {
+            ready: '.details-accordion-mfe__description, input[name="pdp_swatch"]',
+            identity: 'color+variant',
+            brand: 'Hollister',
+            title: () => {
+                const p = hoCur();
+                return p ? decodeHtml(p.productName) : selText('h1');
+            },
+            price: () => {
+                const pr = hoPrice(hoCur());
+                return pr ? { value: pr.price, currency: 'USD' } : ldPrice();
+            },
+            description: () => {
+                const p = hoCur();
+                return p && p.longDescription ? S(p.longDescription).trim() : ldDesc();
+            },
+            descriptionSections: () => hoDescSections(),
+            images: () => hoImages(hoCur()),
+            extra: () => hoExtra(),
+        },
+
+        // --- Gap Inc (Banana Republic, Gap, Old Navy, Athleta) — xem khối GAP INC ở trên. ---
+        'gap.com': {
+            ready: 'h1',
+            identity: 'color+variant',
+            get brand() {
+                const d = gpData();
+                return GAP_BRANDS[S(d && d.brand).toLowerCase()] || '';
+            },
+            title: () => {
+                const st = gpStyle();
+                return st && st.description ? decodeHtml(st.description) : selText('h1');
+            },
+            price: () => {
+                const pr = gpPriceOf(gpCurId());
+                return pr ? { value: pr.price, currency: 'USD' } : ldPrice();
+            },
+            description: () => {
+                const s = gpDescSections()[0];
+                return s ? htmlToText(s.html) : ldDesc();
+            },
+            descriptionSections: () => gpDescSections(),
+            images: () => gpImages(gpCurId()),
+            extra: () => gpExtra(),
+        },
+
+        // --- Theory / Helmut Lang (SFRA chung code) — xem khối THEORY / HELMUT LANG ở trên. ---
+        'theory.com': frAdapter('Theory'),
+        'helmutlang.com': frAdapter('Helmut Lang'),
+
+        // --- prAna (SFRA tuỳ biến) — xem khối PRANA ở trên. Chung 1 link mọi màu. ---
+        'prana.com': {
+            ready: '.product-detail, h1',
+            identity: 'color+variant',
+            brand: 'prAna',
+            prefetch: () => prPrefetch(),
+            title: () => {
+                const p = prBase();
+                return p ? decodeHtml(p.productName || p.variantName || p.tileName) : selText('h1');
+            },
+            price: () => {
+                const pr = prColorPrice(prCurColor());
+                return pr ? { value: pr.price, currency: 'USD' } : ldPrice();
+            },
+            description: () => {
+                const s = prDescSections()[0];
+                return s ? htmlToText(s.html) : ldDesc();
+            },
+            descriptionSections: () => prDescSections(),
+            images: () => prImages(prCurColor()),
+            extra: () => prExtra(),
+        },
+
+        // --- Touch of Class (Magento cũ, DOM) — xem khối TOUCH OF CLASS ở trên. Mỗi màu 1 link. ---
+        'touchofclass.com': {
+            ready: '.js-addtocart',
+            identity: 'color',
+            brand: 'Touch of Class',
+            title: () => selText('h1.d-md-block') || S(document.title).trim(),
+            price: () => tcPrice(),
+            description: () => {
+                const s = tcDescSections()[0];
+                return s ? nodeText(s.el) : '';
+            },
+            descriptionSections: () => tcDescSections(),
+            images: () => tcImages(),
+            extra: () => tcExtra(),
         },
 
         'personalcreations.com': {
